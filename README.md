@@ -69,7 +69,8 @@ Never burns in a machine that failed Stage 1 or 2.
 ```
 --serial <S>        required: per-unit serial, stamped into the report
 --config <file>     expected_config.yaml (default)
---duration <30m>    burn-in steady-state duration (e.g. 90s, 30m, 1h)
+--duration <30m>    PER-STAGE burn-in time (e.g. 90s, 30m, 1h). 6 stages run
+                    sequentially, so total burn-in ~= 6 x this (5m => ~30m).
 --mode <full|preflight|inventory|burnin>
 --fio-target <path> SSD test target (default: a guarded file in results/)
 ```

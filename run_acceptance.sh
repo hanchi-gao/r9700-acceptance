@@ -7,6 +7,10 @@
 #   ./run_acceptance.sh --serial SN123 [--config expected_config.yaml]
 #        [--duration 30m] [--mode full|preflight|inventory|burnin]
 #        [--fio-target PATH]
+#
+# NOTE: --duration is PER STAGE. Burn-in runs 6 stages sequentially
+# (hotspot, vram, interconnect, cpu_mem, ssd, combined), each for --duration,
+# so total burn-in time is ~6 x --duration. e.g. --duration 5m => ~30m total.
 set -uo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
@@ -68,7 +72,6 @@ abort_report() {  # write report then exit non-zero
 # ---- Stage 1: preflight ---------------------------------------------------
 if [[ "$MODE" == "full" || "$MODE" == "preflight" ]]; then
   if ! "$REPO_ROOT/preflight.sh"; then
-    [[ "$MODE" == "preflight" ]] && { generate_report() { :; }; }
     abort_report "preflight failed (environment not ready)"
   fi
   [[ "$MODE" == "preflight" ]] && { generate_report "SEE_CHECKS" "preflight-only run"; exit 0; }
@@ -87,6 +90,7 @@ if [[ "$MODE" == "full" || "$MODE" == "burnin" ]]; then
   POLL_SECS="${POLL_SECS:-2}" "$REPO_ROOT/monitor.sh" &
   MON_PID="$!"
   info "monitor started (pid $MON_PID)"
+  info "burn-in: 6 stages x ${DURATION} each, sequential -> ~$(( 6 * DUR_S / 60 ))m total"
 
   ic_args=(--duration "$DUR_S")
   ssd_args=(--duration "$DUR_S"); [[ -n "$FIO_TARGET" ]] && ssd_args+=(--target "$FIO_TARGET")

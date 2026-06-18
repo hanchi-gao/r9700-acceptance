@@ -11,6 +11,13 @@ source "$REPO_ROOT/lib/thresholds.sh"
 DEADLINE="$(resolve_deadline "$@")"
 DURATION=$(( DEADLINE - $(date +%s) )); (( DURATION < 1 )) && DURATION=1
 
+# Guard: a missing stress-ng must FAIL loudly, not silently pass (its
+# "command not found" text wouldn't match the verify-error grep below).
+if ! command -v stress-ng >/dev/null; then
+  fail "cpu_mem" "stress-ng not installed — cannot stress CPU/RAM. FIX: ./deploy.sh"
+  exit 1
+fi
+
 trap cleanup_tracked EXIT INT TERM
 
 ncpu="$(nproc)"
