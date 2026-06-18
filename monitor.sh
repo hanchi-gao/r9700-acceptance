@@ -21,14 +21,18 @@ HEADER="timestamp,gpu_id,bdf,junction_temp,memory_temp,edge_temp,power_draw_w,vr
 
 SUDO=""; sudo -n true 2>/dev/null && SUDO="sudo -n"
 
-# dmesg cursor so we only report NEW lines each scan.
+# dmesg cursor so we only report NEW lines each scan. Initialised to the current
+# line count BELOW (before the poll loop) so boot history is the baseline and is
+# NOT flagged — we only care about events that appear DURING burn-in.
 dmesg_since=0
 scan_events() {
   local now line
   now="$(date '+%Y-%m-%dT%H:%M:%S')"
   while IFS= read -r line; do
     case "$line" in
-      *AER*|*"Machine check"*|*"mce:"*|*"amdgpu"*"reset"*|*"ring "*"timeout"*|*"GPU reset"*)
+      # Match real PCIe AER errors ("pcieport ...: AER:" / "PCIe Bus Error"),
+      # NOT the benign boot ACPI line "_OSC: ... [AER LTR DPC]".
+      *"AER:"*|*"PCIe Bus Error"*|*"Machine check"*|*"mce:"*|*"amdgpu"*"reset"*|*"ring "*"timeout"*|*"GPU reset"*)
         printf '%s\t%s\n' "$now" "$line" >> "$EVENTS" ;;
     esac
   done < <(${SUDO} dmesg --notime 2>/dev/null | tail -n +$((dmesg_since+1)))
@@ -93,6 +97,9 @@ PY
 
 info "monitor: polling every ${POLL_SECS}s -> $CSV  (events -> $EVENTS)"
 start="$(date +%s)"
+# Baseline the dmesg cursor to NOW so existing boot history isn't flagged;
+# only lines that appear during burn-in are recorded as events.
+dmesg_since="$(${SUDO} dmesg 2>/dev/null | wc -l)"
 trap 'info "monitor: stopping"; exit 0' INT TERM
 while :; do
   poll_gpus
