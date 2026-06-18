@@ -26,17 +26,23 @@ GPU_JUNCTION_FAIL_C=103    # golden FMA peak (102) + 1°C; hard limit ~110 leave
 GPU_JUNCTION_BASELINE_AMBIENT_C=28   # golden FMA-peak (102°C) run was at ~28°C inlet
 
 # =============================================================
-# GPU MEMORY (HBM) TEMPERATURE  [°C]
+# GPU MEMORY (GDDR6) TEMPERATURE  [°C]
 # -------------------------------------------------------------
-# Anchor: golden machine peaked at 98°C under VRAM burn (vLLM fill)
-# at ~28°C inlet on 2026-06-17.
-# FAIL = 99 = golden peak + 1°C  ("hotter than known-good HBM → reject")
-# NOTE: 98°C is already warm for HBM, so headroom to the real device
-# limit is thinner than junction. Ambient consistency matters most here —
-# a warmer run will push memory temp up with little margin before FAIL.
+# Anchor (RECALIBRATED 2026-06-18): golden machine plateaued at 100°C under a
+# 30-min GEMM VRAM burn (stress/gpu_vram.sh) with ZERO errors — AER/MCE/SMART
+# all clean, junction only 93°C, temp stable (not runaway). It held there the
+# whole run.
+# The previous 98/99 anchor was set against the OLD vLLM VRAM fill, which heats
+# GDDR6 less than the current GEMM burn; against GEMM it produced a false REJECT
+# on a known-good machine (golden must be all-PASS, zero false positives).
+#   WARN = 100 = golden GEMM steady-state peak — investigate anything above it.
+#   FAIL = 104 = golden + 4°C margin, kept below the ~105°C GDDR6 operating
+#          limit (confirm against the R9700 GDDR6 datasheet before tightening).
+# Ambient still matters: a materially warmer inlet than the golden run pushes
+# memory temp up — re-anchor per site if inlet differs from the golden baseline.
 # =============================================================
-GPU_MEMORY_WARN_C=96
-GPU_MEMORY_FAIL_C=99
+GPU_MEMORY_WARN_C=100
+GPU_MEMORY_FAIL_C=104
 
 # =============================================================
 # THERMAL THROTTLING
