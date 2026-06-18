@@ -121,6 +121,10 @@ if (( ${#ECC_STATES[@]} )); then
   else
     fail "VRAM ECC consistent" "cards differ: $uniq_states — make ECC mode uniform across the 4 cards (BIOS/rocm-smi)"
   fi
+else
+  # No UMC rows at all: RAS reporting disabled/empty on every card. Can't confirm
+  # consistency — never silently skip an acceptance check; WARN explicitly.
+  skipw "VRAM ECC consistent" "rocm-smi --showrasinfo lists no UMC block on any card (RAS reporting off?) — could not verify ECC mode"
 fi
 
 # --- DIMM count / total RAM ------------------------------------------------

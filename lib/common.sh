@@ -83,8 +83,9 @@ assert_ge() {
   fi
 }
 
-# Count fails recorded so far (whole run).
-count_fails() { grep -c $'^FAIL\t' "$CHECKS_TSV" 2>/dev/null || echo 0; }
+# Count fails recorded so far (whole run). grep -c prints 0 on no-match but
+# also exits 1, so capture stdout (always a single number) and never chain `||`.
+count_fails() { local n; n="$(grep -c $'^FAIL\t' "$CHECKS_TSV" 2>/dev/null)"; echo "${n:-0}"; }
 
 # ----------------------------------------------------------------------------
 # expected_config.yaml reader (python3 + PyYAML)

@@ -103,7 +103,7 @@ if [[ "$MODE" == "full" || "$MODE" == "burnin" ]]; then
 fi
 
 # ---- Report ---------------------------------------------------------------
-nfail="$(grep -c $'^FAIL\t' "$RESULTS_DIR/checks.tsv" 2>/dev/null || echo 0)"
+nfail="$(count_fails)"
 verdict=$([[ "$nfail" -eq 0 ]] && echo "ACCEPTED" || echo "REJECTED")
 generate_report "$verdict" "$nfail check(s) failed"
 
