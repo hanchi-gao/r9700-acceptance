@@ -31,7 +31,7 @@ if [[ -z "$rocm_ver" ]] && command -v rocminfo >/dev/null; then
   rocm_ver="$(rocminfo 2>/dev/null | grep -oE 'ROCk.*' | head -1)"
 fi
 if [[ -z "$rocm_ver" ]]; then
-  fail "ROCm installed" "no /opt/rocm/.info/version and rocminfo missing. FIX: install ROCm 7.x"
+  fail "ROCm installed" "no /opt/rocm/.info/version and rocminfo missing. FIX: run ./install_rocm.sh (then reboot)"
 elif awk -v a="$rocm_ver" -v m="$min_rocm" 'BEGIN{split(a,x,".");split(m,y,".");exit !(x[1]>y[1]||(x[1]==y[1]&&x[2]>=y[2]))}'; then
   pass "ROCm >= $min_rocm" "found $rocm_ver"
 else

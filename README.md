@@ -11,24 +11,33 @@ This is an **acceptance tool, not a lab stress tool**: it faces a stream of
 
 ## Quick start (on a freshly assembled machine)
 
-The target machine needs only **git + ROCm + GPU driver** pre-installed.
-`deploy.sh` installs everything else.
+The target machine needs only **Ubuntu + git**. `install_rocm.sh` installs the
+ROCm stack + amdgpu driver; `deploy.sh` installs everything else.
 
 ```bash
 git clone <this-repo> server-acceptance
 cd server-acceptance
+
+# STEP 0 — install ROCm + amdgpu driver, then REBOOT (skip if ROCm already present).
+# Follows the official quick-start; defaults to ROCm 7.2.4 for gfx1201 / R9700.
+#   https://rocm.docs.amd.com/projects/install-on-linux/en/latest/install/quick-start.html
+./install_rocm.sh                # adds repo, installs amdgpu-dkms + rocm, prompts reboot
+#   override version if needed:  ROCM_VERSION=7.2.4 ./install_rocm.sh
+#   ... reboot, then verify:     rocm-smi
+
+# STEP 1 — install the rest of the suite's dependencies.
 ./deploy.sh                      # install deps, docker, sysctl (sudo)
 #   if it added you to the docker group: log out/in (or: newgrp docker)
 ./deploy.sh --pull               # optional: pull the (large) vLLM image now
 
-# 1. Edit the golden spec to match this machine class:
+# STEP 2 — edit the golden spec to match this machine class:
 $EDITOR expected_config.yaml
 
-# 2. Verify environment + assembly (read-only, fast):
+# STEP 3 — verify environment + assembly (read-only, fast):
 ./preflight.sh
 ./inventory.sh
 
-# 3. Full acceptance run (preflight -> inventory -> burn-in -> report):
+# STEP 4 — full acceptance run (preflight -> inventory -> burn-in -> report):
 ./run_acceptance.sh --serial SN12345 --duration 30m
 ```
 
