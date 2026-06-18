@@ -49,7 +49,7 @@ The result lands in `results/<serial>_<timestamp>/` as `report.txt`,
 |---|---|---|
 | 1 | `preflight.sh` | go/no-go gate: kernel ≥6.11, ROCm, hipcc + rocBLAS, host tools. Each failure prints the **fix**. |
 | 2 | `inventory.sh` | enumerate vs `expected_config.yaml`: GPU count, **VRAM per card**, PCIe x16/Gen5, NUMA, DIMM/RAM, NVMe. Captures AER + SMART baselines. |
-| 3 | `stress/combined.sh` | burn-in: **all subsystems at once** for `--duration` — GPU GEMM (fills VRAM), rccl interconnect, stress-ng (CPU/RAM), fio (SSD). Validates PSU peak + heat soak while VRAM is occupied. |
+| 3 | `stress/combined.sh` | burn-in: **all subsystems at once** for `--duration` — GPU GEMM (fills VRAM), stress-ng (CPU/RAM), fio (SSD). Validates PSU peak + heat soak while VRAM is occupied. |
 
 The orchestrator runs **one combined stage** (everything simultaneously). The
 monitor logs temps/power/events throughout; `postcheck.sh` then judges peak
@@ -68,6 +68,33 @@ does not match rocm-smi order on this platform. The individual `stress/*.sh`
 scripts remain runnable standalone for targeted testing.
 
 Never burns in a machine that failed Stage 1 or 2.
+
+## Run as root for full coverage
+
+Several real checks need root and degrade to **WARN** (never silently skipped)
+when run as a normal user. For a complete factory acceptance, run with `sudo`:
+
+```bash
+sudo ./run_acceptance.sh --serial <SN> --duration 30m
+```
+
+Root-gated checks: **PCIe link width/speed** (`lspci -vvv` LnkSta — catches a
+card that negotiated down to x8/Gen3, invisible to GPU tools), **NVMe SMART**
+baseline/delta, **PCIe AER** baseline/delta, and the **dmesg** scan for MCE /
+GPU-reset events. Without root these report WARN; the verdict can still be
+ACCEPTED but the assembly/error coverage is incomplete.
+
+## Known limitations / notes
+
+- **VRAM ECC**: `inventory.sh` checks all 4 cards share the same VRAM ECC (UMC)
+  mode. If `rocm-smi --showrasinfo` reports no UMC block (RAS reporting off), the
+  check WARNs (cannot verify) — enable ECC/RAS in BIOS to verify it, and set
+  `gpu.vram_ecc_enabled` to your fleet policy.
+- **Interconnect (rccl) is not implemented.** Inter-GPU P2P is fully supported on
+  this platform (full mesh), but rccl-tests is not bundled (no network at build
+  time) and is left as future work — the burn-in does not test interconnect.
+- **Memory temperature runs warm** (~96–97 °C peak even in a 2-min run; FAIL at
+  99 °C). Watch it on a full 30-min steady-state run.
 
 ## `run_acceptance.sh` options
 

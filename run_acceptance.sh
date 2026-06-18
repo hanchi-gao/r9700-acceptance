@@ -8,7 +8,7 @@
 #        [--duration 30m] [--mode full|preflight|inventory|burnin]
 #        [--fio-target PATH]
 #
-# Burn-in is a SINGLE combined stage: GPU GEMM(VRAM) + rccl + stress-ng + fio
+# Burn-in is a SINGLE combined stage: GPU GEMM(VRAM) + stress-ng + fio
 # all at once for --duration. So --duration IS the burn-in length (e.g. 30m).
 # The individual stress/*.sh scripts remain runnable standalone (e.g. gpu_hotspot
 # for a max-junction FMA probe) but the orchestrator runs only combined.
@@ -93,7 +93,7 @@ if [[ "$MODE" == "full" || "$MODE" == "burnin" ]]; then
   info "monitor started (pid $MON_PID)"
   info "burn-in: combined (all subsystems at once) for ${DURATION}"
 
-  # Single combined stage: GPU GEMM(VRAM) + rccl + stress-ng + fio simultaneously.
+  # Single combined stage: GPU GEMM(VRAM) + stress-ng + fio simultaneously.
   hdr "burn-in: combined";  "$REPO_ROOT/stress/combined.sh" --duration "$DUR_S" \
       ${FIO_TARGET:+--fio-target "$FIO_TARGET"} || true
 
