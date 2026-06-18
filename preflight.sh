@@ -45,37 +45,29 @@ else
   fail "rocm-smi runs" "rocm-smi missing or errored. FIX: check ROCm install / driver"
 fi
 
-# --- Docker present + usable without sudo ----------------------------------
-if ! command -v docker >/dev/null; then
-  fail "docker present" "not installed. FIX: run ./deploy.sh"
-elif docker info >/dev/null 2>&1; then
-  pass "docker usable without sudo"
+# --- GPU burn build readiness (hipcc + rocBLAS) ----------------------------
+# The burn-in stages compile self-contained HIP kernels at runtime — no docker,
+# no network. FMA hotspot needs hipcc; GEMM VRAM-burn also needs rocBLAS.
+if command -v hipcc >/dev/null; then
+  pass "hipcc present" "GPU burn kernels buildable (arch $GPU_ARCH)"
 else
-  fail "docker usable without sudo" "docker info failed (permission or daemon). FIX: sudo usermod -aG docker $USER && newgrp docker ; sudo systemctl enable --now docker"
+  fail "hipcc present" "needed to build the GPU burn kernels. FIX: install ROCm hip-dev (./install_rocm.sh)"
 fi
-
-# --- Docker GPU access (best effort; needs the vLLM image present) ---------
-if command -v docker >/dev/null && docker info >/dev/null 2>&1; then
-  if docker image inspect "$VRAM_IMAGE" >/dev/null 2>&1; then
-    if docker run --rm $(docker_gpu_args) "$VRAM_IMAGE" rocm-smi --showid >/dev/null 2>&1; then
-      pass "docker GPU access" "container sees GPUs (render=$(render_gid) video=$(video_gid))"
-    else
-      fail "docker GPU access" "container could not list GPUs. Check render/video GID passthrough. render=$(render_gid) video=$(video_gid)"
-    fi
-  else
-    skipw "docker GPU access" "image not pulled yet; deferred. FIX: docker pull $VRAM_IMAGE (then re-run preflight)"
-  fi
+if ls /opt/rocm/lib/librocblas.so* >/dev/null 2>&1 && ls /opt/rocm/include/rocblas/rocblas.h >/dev/null 2>&1; then
+  pass "rocBLAS present" "VRAM-burn (gemm) buildable"
+else
+  fail "rocBLAS present" "librocblas/rocblas.h missing — needed for the VRAM-burn stage. FIX: install rocblas/rocblas-dev (ships with ROCm)"
 fi
 
 # --- Required host tools ----------------------------------------------------
 declare -A TOOL_FIX=(
   [lspci]="pciutils"     [fio]="fio"            [stress-ng]="stress-ng"
   [memtester]="memtester" [smartctl]="smartmontools" [nvme]="nvme-cli"
-  [sensors]="lm-sensors"  [dmidecode]="dmidecode"    [hipcc]="rocm (hip-dev)"
+  [sensors]="lm-sensors"  [dmidecode]="dmidecode"
   [git]="git"             [python3]="python3"
 )
 missing=()
-for t in lspci fio stress-ng memtester smartctl nvme sensors dmidecode hipcc git python3; do
+for t in lspci fio stress-ng memtester smartctl nvme sensors dmidecode git python3; do
   if command -v "$t" >/dev/null 2>&1; then :; else missing+=("$t(${TOOL_FIX[$t]})"); fi
 done
 if (( ${#missing[@]} == 0 )); then

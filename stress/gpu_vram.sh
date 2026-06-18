@@ -1,58 +1,52 @@
 #!/usr/bin/env bash
-# stress/gpu_vram.sh — fill VRAM + drive memory (HBM) temp on every GPU.
-# One container per GPU, each pinned with HIP_VISIBLE_DEVICES, running
-# vram_stress.py inside the rocm-vllm image. (plan §6)
+# stress/gpu_vram.sh — fill VRAM + drive HBM/memory temp on every GPU in parallel.
+# Uses the self-contained rocBLAS GEMM kernel (src/gemm_burn.hip): proven to
+# occupy ~29.5GB VRAM, pull ~300W and push memory temp to ~86C on gfx1201 — no
+# docker / vLLM / network needed. One process per GPU, runs to a shared deadline.
 #
-# Usage: ./stress/gpu_vram.sh [--duration SECONDS]
-# Every healthy card must fill ~32GB. Judged later from telemetry.csv +
-# each container's exit code (non-zero => FAIL).
+# Usage: ./stress/gpu_vram.sh [--duration SECONDS | --deadline EPOCH]
+# Every healthy card must fill ~VRAM_BURN_PCT of its VRAM (judged from
+# telemetry.csv vram_used + memory temp); a short/faulty card shows up here too.
 
 set -uo pipefail
 source "$(dirname "$(readlink -f "$0")")/../lib/common.sh"
 source "$REPO_ROOT/lib/thresholds.sh"
 
-DURATION=120
-[[ "${1:-}" == "--duration" ]] && DURATION="${2:-120}"
-MODEL="${VRAM_MODEL:-Qwen/Qwen2.5-14B-Instruct}"
-
-if ! docker image inspect "$VRAM_IMAGE" >/dev/null 2>&1; then
-  die "vLLM image not present. FIX: docker pull $VRAM_IMAGE"
-fi
+DEADLINE="$(resolve_deadline "$@")"
+PCT="$(cfg gpu.vram_burn_pct)"; PCT="${PCT:-90}"
+BURN="$REPO_ROOT/build/gemm_burn"
 
 trap cleanup_tracked EXIT INT TERM
 
-GPU_ARGS="$(docker_gpu_args)"
+if ! build_hip "$REPO_ROOT/src/gemm_burn.hip" "$BURN" -lrocblas; then
+  die "failed to build gemm_burn (needs rocBLAS: librocblas + rocblas.h). See $RESULTS_DIR/build.log"
+fi
+info "gpu_vram: GEMM VRAM/memory burn (fill ${PCT}%) on all GPUs until $(date -d "@$DEADLINE" '+%H:%M:%S')"
+
 n="$(gpu_count)"
-names=()
+rc=0
 for id in $(seq 0 $((n-1))); do
-  cname="vram_stress_gpu${id}"
-  docker rm -f "$cname" >/dev/null 2>&1 || true
-  # shellcheck disable=SC2086
-  docker run -d --name "$cname" $GPU_ARGS \
-    -e HIP_VISIBLE_DEVICES="$id" \
-    -e VRAM_MODEL="$MODEL" \
-    -v "$REPO_ROOT/vram_stress.py:/vram_stress.py:ro" \
-    "$VRAM_IMAGE" \
-    python3 /vram_stress.py --duration "$DURATION" --gpu-mem-util 0.95 \
-       --max-model-len 8192 --concurrency 64 >/dev/null
-  track_container "$cname"
-  names+=("$cname")
-  info "  launched VRAM stress container on GPU$id ($cname)"
+  HIP_VISIBLE_DEVICES="$id" "$BURN" "$DEADLINE" "$PCT" >"$RESULTS_DIR/vram_hip${id}.log" 2>&1 &
+  track_pid "$!"
+  info "  launched GEMM VRAM burn on HIP device $id (pid $!)"
 done
 
-# Wait for all containers, collect logs + exit codes.
-rc_total=0
-for cname in "${names[@]}"; do
-  code="$(docker wait "$cname" 2>/dev/null || echo 1)"
-  docker logs "$cname" > "$RESULTS_DIR/${cname}.log" 2>&1 || true
-  docker rm -f "$cname" >/dev/null 2>&1 || true
-  if [[ "$code" == "0" ]]; then
-    pass "VRAM stress $cname" "exit 0"
+# Collect per-process exit codes (a HIP/alloc failure on a bad card => FAIL).
+for id in $(seq 0 $((n-1))); do
+  if wait "%$((id+1))" 2>/dev/null; then :; fi
+done
+wait
+for id in $(seq 0 $((n-1))); do
+  log="$RESULTS_DIR/vram_hip${id}.log"
+  alloc="$(grep -h 'resident VRAM' "$log" 2>/dev/null | tail -1)"
+  done_line="$(grep -h 'done bdf=' "$log" 2>/dev/null | tail -1)"
+  bdf="$(grep -hoE 'bdf=[0-9a-f:.]+' "$log" 2>/dev/null | head -1 | cut -d= -f2)"
+  if [[ -n "$done_line" ]]; then
+    pass "VRAM burn ${bdf:-HIP$id}" "${alloc#*bdf=* }"
   else
-    fail "VRAM stress $cname" "exit $code (see $RESULTS_DIR/${cname}.log)"
-    rc_total=1
+    fail "VRAM burn ${bdf:-HIP$id}" "did not complete — see $(basename "$log")"
+    rc=1
   fi
 done
-
-info "gpu_vram: all containers finished"
-exit $rc_total
+info "gpu_vram: all GEMM VRAM burn processes finished"
+exit $rc

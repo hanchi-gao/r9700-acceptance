@@ -4,17 +4,16 @@
 # PSU shows as a transient reset or a card dropping power) plus worst-case
 # chassis heat soak (plan §6).
 #
-# Usage: ./stress/combined.sh [--duration SECONDS] [--fio-target PATH]
+# Usage: ./stress/combined.sh [--duration SECONDS | --deadline EPOCH] [--fio-target PATH]
 
 set -uo pipefail
 source "$(dirname "$(readlink -f "$0")")/../lib/common.sh"
 source "$REPO_ROOT/lib/thresholds.sh"
 
-DURATION=120
+DEADLINE="$(resolve_deadline "$@")"
 FIO_TARGET=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --duration)   DURATION="$2"; shift 2;;
     --fio-target) FIO_TARGET="$2"; shift 2;;
     *) shift;;
   esac
@@ -23,14 +22,15 @@ done
 trap cleanup_tracked EXIT INT TERM
 HERE="$(dirname "$(readlink -f "$0")")"
 
-info "combined: launching GPU hotspot + CPU/mem + SSD together for ${DURATION}s (PSU peak / heat soak)"
+info "combined: GPU hotspot + CPU/mem + SSD together until $(date -d "@$DEADLINE" '+%H:%M:%S') (PSU peak / heat soak)"
 
-# All three subsystems at once. Each child writes its own logs + check rows.
-"$HERE/gpu_hotspot.sh" --duration "$DURATION" >"$RESULTS_DIR/combined_gpu.log" 2>&1 &
+# All three subsystems at once, sharing one deadline. Each child writes its own
+# logs + check rows.
+"$HERE/gpu_hotspot.sh" --deadline "$DEADLINE" >"$RESULTS_DIR/combined_gpu.log" 2>&1 &
 track_pid "$!"
-"$HERE/cpu_mem.sh" --duration "$DURATION" >"$RESULTS_DIR/combined_cpu.log" 2>&1 &
+"$HERE/cpu_mem.sh" --deadline "$DEADLINE" >"$RESULTS_DIR/combined_cpu.log" 2>&1 &
 track_pid "$!"
-ssd_args=(--duration "$DURATION")
+ssd_args=(--deadline "$DEADLINE")
 [[ -n "$FIO_TARGET" ]] && ssd_args+=(--target "$FIO_TARGET")
 "$HERE/ssd.sh" "${ssd_args[@]}" >"$RESULTS_DIR/combined_ssd.log" 2>&1 &
 track_pid "$!"

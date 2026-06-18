@@ -142,22 +142,37 @@ gpu_index_bdf() {
 # Number of GPUs visible to rocm-smi.
 gpu_count() { gpu_bdfs | grep -c . ; }
 
-# Resolve render/video numeric GIDs for docker --group-add (critical, see plan §12).
-render_gid() { getent group render | cut -d: -f3; }
-video_gid()  { getent group video  | cut -d: -f3; }
+# GPU compute arch for hipcc (auto-detect; expect gfx1201 on R9700).
+GPU_ARCH="${GPU_ARCH:-$(rocminfo 2>/dev/null | grep -oE 'gfx[0-9a-f]+' | head -1)}"
+GPU_ARCH="${GPU_ARCH:-gfx1201}"
+export GPU_ARCH
 
-# Standard docker GPU args (devices + resolved GIDs + seccomp).
-docker_gpu_args() {
-  local rgid vgid
-  rgid="$(render_gid)"; vgid="$(video_gid)"
-  printf '%s' "--device=/dev/kfd --device=/dev/dri --security-opt seccomp=unconfined"
-  [[ -n "$rgid" ]] && printf ' --group-add %s' "$rgid"
-  [[ -n "$vgid" ]] && printf ' --group-add %s' "$vgid"
+# build_hip SRC OUT [extra hipcc args...] — compile a .hip if missing/stale.
+# Self-contained burn kernels (no docker, no network needed). Returns non-zero
+# on build failure.
+build_hip() {
+  local src="$1" out="$2"; shift 2
+  mkdir -p "$(dirname "$out")"
+  [[ -x "$out" && "$out" -nt "$src" ]] && return 0
+  hipcc --offload-arch="$GPU_ARCH" -O3 "$src" -o "$out" "$@" 2>>"$RESULTS_DIR/build.log"
 }
 
-# VRAM container image (overridable via env).
-VRAM_IMAGE="${VRAM_IMAGE:-asrock_henrygao/rocm-vllm:rocm7.1_ubuntu22.04_py3.12_pytorch_release_2.9.0_vllm0.13.0}"
-export VRAM_IMAGE
+# resolve_deadline ARGS... — parse "--deadline EPOCH" or "--duration SECONDS"
+# (or env DEADLINE_EPOCH) and echo an absolute epoch deadline. Burn-in runs to a
+# shared deadline; all parallel stages stop together.
+resolve_deadline() {
+  local dur="" dl="${DEADLINE_EPOCH:-}"
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --deadline) dl="$2"; shift 2;;
+      --duration) dur="$2"; shift 2;;
+      *) shift;;
+    esac
+  done
+  if [[ -n "$dl" ]]; then echo "$dl"
+  elif [[ -n "$dur" ]]; then echo $(( $(date +%s) + dur ))
+  else echo $(( $(date +%s) + 120 )); fi
+}
 
 # ----------------------------------------------------------------------------
 # Process / container cleanup tracking (plan §8)

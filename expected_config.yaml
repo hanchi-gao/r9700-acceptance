@@ -21,6 +21,8 @@ gpu:
   # is caught. (As of 2026-06-18, GPU @ 0000:e3:00.0 reports 32061259776 B
   # and is correctly FAILED by this floor — swap it for a good card.)
   vram_bytes_min: 33500000000
+  # Burn-in: fraction of free VRAM the GEMM VRAM-burn stage occupies per card.
+  vram_burn_pct: 90
   # Max allowed spread between the largest and smallest card's VRAM, as a
   # fraction. Catches "one card is the odd one out" even if all clear the floor.
   vram_spread_max_frac: 0.02

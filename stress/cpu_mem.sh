@@ -8,8 +8,8 @@ set -uo pipefail
 source "$(dirname "$(readlink -f "$0")")/../lib/common.sh"
 source "$REPO_ROOT/lib/thresholds.sh"
 
-DURATION=120
-[[ "${1:-}" == "--duration" ]] && DURATION="${2:-120}"
+DEADLINE="$(resolve_deadline "$@")"
+DURATION=$(( DEADLINE - $(date +%s) )); (( DURATION < 1 )) && DURATION=1
 
 trap cleanup_tracked EXIT INT TERM
 

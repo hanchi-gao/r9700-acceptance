@@ -16,15 +16,15 @@ set -uo pipefail
 source "$(dirname "$(readlink -f "$0")")/../lib/common.sh"
 source "$REPO_ROOT/lib/thresholds.sh"
 
-DURATION=120
 TARGET="$RESULTS_DIR/fio_test.tmp"
+DEADLINE="$(resolve_deadline "$@")"
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --duration) DURATION="$2"; shift 2;;
     --target)   TARGET="$2";   shift 2;;
     *) shift;;
   esac
 done
+DURATION=$(( DEADLINE - $(date +%s) )); (( DURATION < 1 )) && DURATION=1
 
 # --- Resolve the OS root's parent disk, e.g. /dev/nvme0n1p2 -> /dev/nvme0n1 ---
 root_src="$(findmnt -no SOURCE / 2>/dev/null)"

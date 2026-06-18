@@ -25,10 +25,9 @@ cd server-acceptance
 #   override version if needed:  ROCM_VERSION=7.2.4 ./install_rocm.sh
 #   ... reboot, then verify:     rocm-smi
 
-# STEP 1 — install the rest of the suite's dependencies.
-./deploy.sh                      # install deps, docker, sysctl (sudo)
-#   if it added you to the docker group: log out/in (or: newgrp docker)
-./deploy.sh --pull               # optional: pull the (large) vLLM image now
+# STEP 1 — install the rest of the suite's dependencies (sudo for apt).
+./deploy.sh                      # host tools + pre-builds the GPU burn kernels
+#   No docker needed: burn-in uses self-contained HIP kernels.
 
 # STEP 2 — edit the golden spec to match this machine class:
 $EDITOR expected_config.yaml
@@ -48,9 +47,20 @@ The result lands in `results/<serial>_<timestamp>/` as `report.txt`,
 
 | Stage | Script | What it does |
 |---|---|---|
-| 1 | `preflight.sh` | go/no-go gate: kernel ≥6.11, ROCm, docker GPU access, host tools. Each failure prints the **fix**. |
+| 1 | `preflight.sh` | go/no-go gate: kernel ≥6.11, ROCm, hipcc + rocBLAS, host tools. Each failure prints the **fix**. |
 | 2 | `inventory.sh` | enumerate vs `expected_config.yaml`: GPU count, **VRAM per card**, PCIe x16/Gen5, NUMA, DIMM/RAM, NVMe. Captures AER + SMART baselines. |
-| 3 | `stress/*` | burn-in to steady state: GPU hotspot, VRAM fill, interconnect, CPU/RAM, SSD, combined (PSU peak). |
+| 3 | `stress/*` | burn-in to a shared deadline: GPU hotspot (FMA), VRAM fill (GEMM), interconnect, CPU/RAM, SSD, combined (PSU peak). |
+
+### GPU burn-in loads (self-contained — no docker / vLLM / network)
+
+| Stage | Kernel | Effect on each R9700 (measured) |
+|---|---|---|
+| hotspot | `src/gpu_burn.hip` (FMA loop) | ~300 W, **junction ~95 °C**, ~512 MB VRAM |
+| VRAM | `src/gemm_burn.hip` (rocBLAS GEMM, fill 90%) | ~300 W, **fills ~29.5 GB VRAM**, **memory ~86 °C** |
+
+Both compile at runtime with `hipcc` (GEMM also links rocBLAS, which ships with
+ROCm). GPUs are addressed/attributed by **PCI BDF**, not index — HIP device order
+does not match rocm-smi order on this platform.
 
 Never burns in a machine that failed Stage 1 or 2.
 
@@ -75,8 +85,8 @@ Never burns in a machine that failed Stage 1 or 2.
 
 `stress/ssd.sh` has a **mandatory write guard** (plan §8): it refuses to write
 to any device hosting a mounted filesystem (especially `/`) and never defaults
-to a raw device. Default SSD testing is file-based. All stress processes and
-containers are tracked and killed on exit / Ctrl-C / error.
+to a raw device. Default SSD testing is file-based. All stress processes are
+tracked by PID and killed on exit / Ctrl-C / error.
 
 ## Notes on the current dev machine (2026-06-18)
 
@@ -85,9 +95,11 @@ from the production WRX90 target — re-tune the `# TUNE` lines before shipping:
 
 - **single NUMA node** (prod target is dual-NUMA WRX90)
 - **~194 GB RAM**, **1× Crucial P310 1TB** NVMe (also the OS disk → file-based fio)
-- GPU `0000:e3:00.0` reports **2 GiB less VRAM** than the other three and is
-  correctly **FAILED** by `inventory.sh` — swap it for a good card.
-- The 4 cards have **inconsistent VRAM ECC** (one enabled, three disabled);
-  inventory flags it — make ECC uniform per your fleet policy.
+- All 4 cards now report a uniform **31.86 GiB VRAM** and pass inventory. (A card
+  at `0000:e3:00.0` previously read 2 GiB short and was correctly **FAILED** by
+  `inventory.sh` until repaired — the VRAM floor + cross-card spread check catch
+  a short/odd card.)
+- `inventory.sh` also checks **VRAM ECC consistency** across the 4 cards; set the
+  intended mode via `vram_ecc_enabled` and make BIOS/rocm-smi uniform.
 
 See `PROJECT_PLAN.md` for the complete specification.
