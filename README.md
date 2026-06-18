@@ -49,18 +49,23 @@ The result lands in `results/<serial>_<timestamp>/` as `report.txt`,
 |---|---|---|
 | 1 | `preflight.sh` | go/no-go gate: kernel ≥6.11, ROCm, hipcc + rocBLAS, host tools. Each failure prints the **fix**. |
 | 2 | `inventory.sh` | enumerate vs `expected_config.yaml`: GPU count, **VRAM per card**, PCIe x16/Gen5, NUMA, DIMM/RAM, NVMe. Captures AER + SMART baselines. |
-| 3 | `stress/*` | burn-in to a shared deadline: GPU hotspot (FMA), VRAM fill (GEMM), interconnect, CPU/RAM, SSD, combined (PSU peak). |
+| 3 | `stress/combined.sh` | burn-in: **all subsystems at once** for `--duration` — GPU GEMM (fills VRAM), rccl interconnect, stress-ng (CPU/RAM), fio (SSD). Validates PSU peak + heat soak while VRAM is occupied. |
+
+The orchestrator runs **one combined stage** (everything simultaneously). The
+monitor logs temps/power/events throughout; `postcheck.sh` then judges peak
+temps, AER/MCE/reset, and SMART deltas.
 
 ### GPU burn-in loads (self-contained — no docker / vLLM / network)
 
-| Stage | Kernel | Effect on each R9700 (measured) |
+| Kernel | Effect on each R9700 (measured) | Used by |
 |---|---|---|
-| hotspot | `src/gpu_burn.hip` (FMA loop) | ~300 W, **junction ~95 °C**, ~512 MB VRAM |
-| VRAM | `src/gemm_burn.hip` (rocBLAS GEMM, fill 90%) | ~300 W, **fills ~29.5 GB VRAM**, **memory ~86 °C** |
+| `src/gemm_burn.hip` (rocBLAS GEMM, fill 90%) | ~300 W, **fills ~29.5 GB VRAM**, **memory ~86 °C** | combined burn-in (`gpu_vram.sh`) |
+| `src/gpu_burn.hip` (FMA loop) | ~300 W, **junction ~95 °C**, ~512 MB VRAM | standalone max-junction probe (`gpu_hotspot.sh`) |
 
 Both compile at runtime with `hipcc` (GEMM also links rocBLAS, which ships with
 ROCm). GPUs are addressed/attributed by **PCI BDF**, not index — HIP device order
-does not match rocm-smi order on this platform.
+does not match rocm-smi order on this platform. The individual `stress/*.sh`
+scripts remain runnable standalone for targeted testing.
 
 Never burns in a machine that failed Stage 1 or 2.
 
@@ -69,8 +74,8 @@ Never burns in a machine that failed Stage 1 or 2.
 ```
 --serial <S>        required: per-unit serial, stamped into the report
 --config <file>     expected_config.yaml (default)
---duration <30m>    PER-STAGE burn-in time (e.g. 90s, 30m, 1h). 6 stages run
-                    sequentially, so total burn-in ~= 6 x this (5m => ~30m).
+--duration <30m>    burn-in length (e.g. 90s, 30m, 1h). One combined stage runs
+                    all subsystems at once for this long.
 --mode <full|preflight|inventory|burnin>
 --fio-target <path> SSD test target (default: a guarded file in results/)
 ```

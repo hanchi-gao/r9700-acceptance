@@ -1,10 +1,18 @@
 #!/usr/bin/env bash
-# stress/combined.sh — GPU + CPU + SSD simultaneously.
-# Purpose: PSU peak validation (4 cards + CPU full draw is worst case; a weak
-# PSU shows as a transient reset or a card dropping power) plus worst-case
-# chassis heat soak (plan §6).
+# stress/combined.sh — THE burn-in stage: every subsystem loaded simultaneously,
+# sharing one deadline. This is the worst case an acceptance run cares about:
+#   - GPU:          gpu_vram (rocBLAS GEMM) -> fills ~29.5GB VRAM, ~300W, hot HBM
+#   - interconnect: gpu_interconnect (rccl all-reduce, best-effort)
+#   - CPU + RAM:    cpu_mem (stress-ng across all cores/channels)
+#   - SSD:          ssd (fio, write-guarded)
+# Running them together validates PSU peak (4 cards + CPU full draw) and worst-
+# case chassis heat soak, while VRAM is genuinely occupied. Each child writes its
+# own PASS/FAIL rows + logs; the monitor records temps/power/events throughout.
 #
 # Usage: ./stress/combined.sh [--duration SECONDS | --deadline EPOCH] [--fio-target PATH]
+#
+# Note: the GPU GEMM burn fills most of VRAM; if you later enable rccl-tests and
+# it OOMs for its buffers, lower gpu.vram_burn_pct in expected_config.yaml.
 
 set -uo pipefail
 source "$(dirname "$(readlink -f "$0")")/../lib/common.sh"
@@ -22,18 +30,18 @@ done
 trap cleanup_tracked EXIT INT TERM
 HERE="$(dirname "$(readlink -f "$0")")"
 
-info "combined: GPU hotspot + CPU/mem + SSD together until $(date -d "@$DEADLINE" '+%H:%M:%S') (PSU peak / heat soak)"
+info "combined burn-in until $(date -d "@$DEADLINE" '+%H:%M:%S'): GPU GEMM(VRAM) + rccl + stress-ng + fio"
 
-# All three subsystems at once, sharing one deadline. Each child writes its own
-# logs + check rows.
-"$HERE/gpu_hotspot.sh" --deadline "$DEADLINE" >"$RESULTS_DIR/combined_gpu.log" 2>&1 &
+# All subsystems at once, sharing the deadline. Each child records its own checks.
+"$HERE/gpu_vram.sh"         --deadline "$DEADLINE" >"$RESULTS_DIR/combined_gpu.log" 2>&1 &
 track_pid "$!"
-"$HERE/cpu_mem.sh" --deadline "$DEADLINE" >"$RESULTS_DIR/combined_cpu.log" 2>&1 &
+"$HERE/gpu_interconnect.sh" --deadline "$DEADLINE" >"$RESULTS_DIR/combined_ic.log"  2>&1 &
 track_pid "$!"
-ssd_args=(--deadline "$DEADLINE")
-[[ -n "$FIO_TARGET" ]] && ssd_args+=(--target "$FIO_TARGET")
+"$HERE/cpu_mem.sh"          --deadline "$DEADLINE" >"$RESULTS_DIR/combined_cpu.log" 2>&1 &
+track_pid "$!"
+ssd_args=(--deadline "$DEADLINE"); [[ -n "$FIO_TARGET" ]] && ssd_args+=(--target "$FIO_TARGET")
 "$HERE/ssd.sh" "${ssd_args[@]}" >"$RESULTS_DIR/combined_ssd.log" 2>&1 &
 track_pid "$!"
 
 wait
-info "combined: done — check telemetry.csv for peak power / any card power-drop / reset events"
+info "combined: done — see telemetry.csv for peak power / any card power-drop / reset events"

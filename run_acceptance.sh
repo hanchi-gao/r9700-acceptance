@@ -8,9 +8,10 @@
 #        [--duration 30m] [--mode full|preflight|inventory|burnin]
 #        [--fio-target PATH]
 #
-# NOTE: --duration is PER STAGE. Burn-in runs 6 stages sequentially
-# (hotspot, vram, interconnect, cpu_mem, ssd, combined), each for --duration,
-# so total burn-in time is ~6 x --duration. e.g. --duration 5m => ~30m total.
+# Burn-in is a SINGLE combined stage: GPU GEMM(VRAM) + rccl + stress-ng + fio
+# all at once for --duration. So --duration IS the burn-in length (e.g. 30m).
+# The individual stress/*.sh scripts remain runnable standalone (e.g. gpu_hotspot
+# for a max-junction FMA probe) but the orchestrator runs only combined.
 set -uo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
@@ -90,17 +91,11 @@ if [[ "$MODE" == "full" || "$MODE" == "burnin" ]]; then
   POLL_SECS="${POLL_SECS:-2}" "$REPO_ROOT/monitor.sh" &
   MON_PID="$!"
   info "monitor started (pid $MON_PID)"
-  info "burn-in: 6 stages x ${DURATION} each, sequential -> ~$(( 6 * DUR_S / 60 ))m total"
+  info "burn-in: combined (all subsystems at once) for ${DURATION}"
 
-  ic_args=(--duration "$DUR_S")
-  ssd_args=(--duration "$DUR_S"); [[ -n "$FIO_TARGET" ]] && ssd_args+=(--target "$FIO_TARGET")
-
-  hdr "burn-in: gpu_hotspot";     "$REPO_ROOT/stress/gpu_hotspot.sh"     --duration "$DUR_S" || true
-  hdr "burn-in: gpu_vram";        "$REPO_ROOT/stress/gpu_vram.sh"        --duration "$DUR_S" || true
-  hdr "burn-in: gpu_interconnect";"$REPO_ROOT/stress/gpu_interconnect.sh" "${ic_args[@]}"    || true
-  hdr "burn-in: cpu_mem";         "$REPO_ROOT/stress/cpu_mem.sh"         --duration "$DUR_S" || true
-  hdr "burn-in: ssd";             "$REPO_ROOT/stress/ssd.sh"             "${ssd_args[@]}"    || true
-  hdr "burn-in: combined";        "$REPO_ROOT/stress/combined.sh"        --duration "$DUR_S" ${FIO_TARGET:+--fio-target "$FIO_TARGET"} || true
+  # Single combined stage: GPU GEMM(VRAM) + rccl + stress-ng + fio simultaneously.
+  hdr "burn-in: combined";  "$REPO_ROOT/stress/combined.sh" --duration "$DUR_S" \
+      ${FIO_TARGET:+--fio-target "$FIO_TARGET"} || true
 
   stop_monitor
   "$REPO_ROOT/lib/postcheck.sh" || true   # AER/SMART/temp/throttle deltas vs baseline
