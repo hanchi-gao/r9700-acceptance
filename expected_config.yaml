@@ -1,0 +1,63 @@
+# expected_config.yaml
+# Golden spec this machine class must match. inventory.sh compares ACTUAL
+# hardware against this file; any mismatch is a FAIL with the offending detail.
+#
+# >>> This file was generated from the live dev machine on 2026-06-18 <<<
+# It currently describes THIS box (single-NUMA, 194GB, 1x NVMe). When you move
+# to the real golden reference, re-tune the values marked  # TUNE  below.
+#
+# NOTE on serial: not in this file. It is per-unit, passed at runtime
+# (run_acceptance.sh --serial <S>), not per-class.
+
+machine_class: "ASRock-4xR9700-dev"
+
+gpu:
+  count: 4
+  pci_id: "1002:7551"            # gfx1201 / RDNA4 R9700
+  vram_gb_each: 32               # nominal marketing capacity
+  # Per-card "VRAM Total Memory" floor in BYTES (rocm-smi --showmeminfo vram).
+  # Healthy R9700 on this box reports 34208743424 B (= 31.86 GiB).
+  # Floor set between a healthy card and a 2-GiB-short card so a short card
+  # is caught. (As of 2026-06-18, GPU @ 0000:e3:00.0 reports 32061259776 B
+  # and is correctly FAILED by this floor — swap it for a good card.)
+  vram_bytes_min: 33500000000
+  # Max allowed spread between the largest and smallest card's VRAM, as a
+  # fraction. Catches "one card is the odd one out" even if all clear the floor.
+  vram_spread_max_frac: 0.02
+  pcie_link_width: 16            # x16        # TUNE if a slot is intentionally x8
+  pcie_link_speed: "32GT/s"      # Gen5
+  # Expect every card to have the SAME VRAM ECC (UMC) mode. true = ECC on.
+  # As of 2026-06-18 the cards are INCONSISTENT (one ENABLED, three DISABLED);
+  # inventory flags inconsistency. Set the intended fleet policy here.
+  vram_ecc_enabled: false        # TUNE to your fleet policy
+  # BDF -> expected NUMA node. On this single-NUMA box the kernel reports
+  # numa_node = -1 for every card; with cpu.numa_nodes == 1 the BDF<->NUMA
+  # comparison is informational (auto-pass). On a real dual-NUMA WRX90 box,
+  # set numa_node per card and it becomes an enforced check.
+  topology:
+    - bdf: "0000:03:00.0"
+      numa_node: -1
+    - bdf: "0000:06:00.0"
+      numa_node: -1
+    - bdf: "0000:e3:00.0"
+      numa_node: -1
+    - bdf: "0000:e6:00.0"
+      numa_node: -1
+
+cpu:
+  numa_nodes: 1                  # TUNE: real WRX90 target is 2
+
+memory:
+  dimm_count: 0                  # 0 = skip (needs sudo dmidecode); set >0 to enforce
+  total_gb_min: 180             # this box reports ~194 GB  # TUNE: prod target 256
+
+storage:
+  nvme_count: 1
+  # The only NVMe on this box is the OS disk. ssd.sh is file-based + guarded.
+  model_hint: "CT1000P310SSD2"   # informational only
+
+kernel:
+  min_version: "6.11"           # 6.8 won't enumerate PCI id 1002:7551
+
+rocm:
+  min_version: "7.0"

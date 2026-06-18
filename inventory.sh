@@ -1,0 +1,159 @@
+#!/usr/bin/env bash
+# inventory.sh — Stage 2: enumerate hardware and compare to expected_config.yaml.
+# Any mismatch -> FAIL with the specific item + BDF. Also captures the
+# pre-burn-in baselines (AER, NVMe SMART) that monitor.sh deltas against later.
+#
+# Some checks need root (lspci -vvv LnkSta, dmidecode, smartctl). When sudo is
+# not available passwordless, those degrade to WARN (never a silent skip).
+
+set -uo pipefail
+source "$(dirname "$(readlink -f "$0")")/lib/common.sh"
+source "$REPO_ROOT/lib/thresholds.sh"
+
+BASELINE_DIR="$RESULTS_DIR/baseline"
+mkdir -p "$BASELINE_DIR"
+
+# Can we elevate without a password prompt?
+SUDO=""
+if sudo -n true 2>/dev/null; then SUDO="sudo -n"; fi
+
+hdr "Stage 2: inventory (enumerate + compare)"
+
+# --- GPU count -------------------------------------------------------------
+exp_count="$(cfg gpu.count)"
+act_count="$(gpu_count)"
+assert_eq "GPU count" "$exp_count" "$act_count"
+
+# --- Per-card VRAM (bytes) + cross-card consistency ------------------------
+# Build "bdf<TAB>bytes" using rocm-smi (cardN order == GPU[N] == showbus order).
+vram_min="$(cfg gpu.vram_bytes_min)"; vram_min="${vram_min:-33500000000}"
+spread_max="$(cfg gpu.vram_spread_max_frac)"; spread_max="${spread_max:-0.02}"
+
+mapfile -t VRAM_ROWS < <(
+python3 - <<'PY'
+import json, subprocess
+bus = subprocess.run(["rocm-smi","--showbus","--json"],capture_output=True,text=True).stdout
+mem = subprocess.run(["rocm-smi","--showmeminfo","vram","--json"],capture_output=True,text=True).stdout
+try:
+    busj = json.loads(bus); memj = json.loads(mem)
+except Exception:
+    raise SystemExit
+for card in sorted(memj):
+    bdf = busj.get(card,{}).get("PCI Bus","?").lower()
+    b = memj[card].get("VRAM Total Memory (B)","0")
+    print(f"{bdf}\t{b}")
+PY
+)
+if (( ${#VRAM_ROWS[@]} == 0 )); then
+  fail "VRAM per card" "could not read rocm-smi VRAM info"
+else
+  printf '%s\n' "${VRAM_ROWS[@]}" > "$BASELINE_DIR/vram_bytes.tsv"
+  vmax=0; vmin=0; first=1
+  for row in "${VRAM_ROWS[@]}"; do
+    bdf="${row%%$'\t'*}"; bytes="${row##*$'\t'}"
+    gib="$(awk -v b="$bytes" 'BEGIN{printf "%.2f", b/1073741824}')"
+    if awk -v b="$bytes" -v m="$vram_min" 'BEGIN{exit !(b+0>=m+0)}'; then
+      pass "VRAM $bdf" "${gib} GiB (>= floor)"
+    else
+      fail "VRAM $bdf" "${gib} GiB — BELOW floor $(awk -v m="$vram_min" 'BEGIN{printf "%.2f", m/1073741824}') GiB. Short/faulty card — replace it."
+    fi
+    if (( first )); then vmax=$bytes; vmin=$bytes; first=0; else
+      (( bytes > vmax )) && vmax=$bytes
+      (( bytes < vmin )) && vmin=$bytes
+    fi
+  done
+  # Cross-card spread
+  if awk -v mx="$vmax" -v mn="$vmin" -v lim="$spread_max" 'BEGIN{exit !((mx-mn)/mx <= lim)}'; then
+    pass "VRAM uniform across cards" "spread $(awk -v mx="$vmax" -v mn="$vmin" 'BEGIN{printf "%.2f%%",(mx-mn)/mx*100}')"
+  else
+    fail "VRAM uniform across cards" "spread $(awk -v mx="$vmax" -v mn="$vmin" 'BEGIN{printf "%.2f%%",(mx-mn)/mx*100}') > ${spread_max} — one card is the odd one out"
+  fi
+fi
+
+# --- PCIe link width/speed per card (LnkSta) -------------------------------
+exp_w="$(cfg gpu.pcie_link_width)"
+exp_s="$(cfg gpu.pcie_link_speed)"
+lnk_reader() { ${SUDO} lspci -vvv -s "$1" 2>/dev/null | grep -E 'LnkSta:'; }
+for bdf in $(gpu_bdfs); do
+  short="${bdf#0000:}"
+  lnksta="$(lnk_reader "$short")"
+  if [[ -z "$lnksta" ]]; then
+    skipw "PCIe link $bdf" "LnkSta unreadable (needs root). FIX: run via sudo or 'sudo -v' first"
+    continue
+  fi
+  width="$(grep -oE 'Width x[0-9]+' <<<"$lnksta" | grep -oE '[0-9]+' | head -1)"
+  speed="$(grep -oE 'Speed [0-9.]+GT/s' <<<"$lnksta" | grep -oE '[0-9.]+GT/s' | head -1)"
+  if [[ "$width" == "$exp_w" && "$speed" == "$exp_s" ]]; then
+    pass "PCIe link $bdf" "x$width $speed"
+  else
+    fail "PCIe link $bdf" "negotiated x$width $speed, expected x$exp_w $exp_s — reseat card/riser (down-negotiation halves bandwidth)"
+  fi
+done
+
+# --- PCIe AER baseline (recompared post-burn-in) ---------------------------
+for bdf in $(gpu_bdfs); do
+  c="$(${SUDO} cat "/sys/bus/pci/devices/$bdf/aer_dev_correctable" 2>/dev/null | awk 'NR==1{print $2}')"
+  u="$(${SUDO} cat "/sys/bus/pci/devices/$bdf/aer_dev_nonfatal"   2>/dev/null | awk 'NR==1{print $2}')"
+  printf '%s\tcorrectable\t%s\n' "$bdf" "${c:-NA}" >> "$BASELINE_DIR/aer.tsv"
+  printf '%s\tnonfatal\t%s\n'    "$bdf" "${u:-NA}" >> "$BASELINE_DIR/aer.tsv"
+done
+[[ -s "$BASELINE_DIR/aer.tsv" ]] && info "AER baseline captured -> $BASELINE_DIR/aer.tsv" \
+  || skipw "AER baseline" "aer_dev_* unreadable (kernel without AER sysfs or needs root)"
+
+# --- BDF <-> NUMA mapping --------------------------------------------------
+exp_numa_nodes="$(cfg cpu.numa_nodes)"; exp_numa_nodes="${exp_numa_nodes:-1}"
+if [[ "$exp_numa_nodes" == "1" ]]; then
+  pass "BDF<->NUMA" "single NUMA node — mapping check informational (auto-pass)"
+else
+  while IFS=$'\t' read -r ebdf enode; do
+    [[ -z "$ebdf" ]] && continue
+    anode="$(cat "/sys/bus/pci/devices/$ebdf/numa_node" 2>/dev/null)"
+    assert_eq "NUMA $ebdf" "$enode" "${anode:-NA}"
+  done < <(paste <(cfg_list gpu.topology bdf) <(cfg_list gpu.topology numa_node))
+fi
+
+# --- VRAM ECC consistency across cards (extra correctness check) -----------
+mapfile -t ECC_STATES < <(rocm-smi --showrasinfo all 2>/dev/null | awk '/UMC/{print $2}')
+if (( ${#ECC_STATES[@]} )); then
+  uniq_states="$(printf '%s\n' "${ECC_STATES[@]}" | sort -u | tr '\n' ',' )"
+  if [[ "$(printf '%s\n' "${ECC_STATES[@]}" | sort -u | wc -l)" == "1" ]]; then
+    pass "VRAM ECC consistent" "all cards UMC=${ECC_STATES[0]}"
+  else
+    fail "VRAM ECC consistent" "cards differ: $uniq_states — make ECC mode uniform across the 4 cards (BIOS/rocm-smi)"
+  fi
+fi
+
+# --- DIMM count / total RAM ------------------------------------------------
+exp_dimm="$(cfg memory.dimm_count)"; exp_dimm="${exp_dimm:-0}"
+if [[ "$exp_dimm" != "0" ]]; then
+  dimm="$(${SUDO} dmidecode -t memory 2>/dev/null | grep -c 'Size:.*[GM]B')"
+  if [[ -z "$dimm" || "$dimm" == "0" ]]; then
+    skipw "DIMM count" "dmidecode unreadable (needs root). FIX: run via sudo"
+  else
+    assert_ge "DIMM count" "$exp_dimm" "$dimm"
+  fi
+fi
+exp_ram="$(cfg memory.total_gb_min)"; exp_ram="${exp_ram:-0}"
+ram_gb="$(awk '/MemTotal/{printf "%.0f", $2/1024/1024}' /proc/meminfo)"
+assert_ge "total RAM (GB)" "$exp_ram" "$ram_gb"
+
+# --- NVMe count + SMART baseline -------------------------------------------
+exp_nvme="$(cfg storage.nvme_count)"; exp_nvme="${exp_nvme:-1}"
+act_nvme="$(lsblk -dn -o NAME,TYPE 2>/dev/null | awk '$2=="disk" && $1 ~ /^nvme/' | wc -l)"
+assert_eq "NVMe count" "$exp_nvme" "$act_nvme"
+
+for dev in $(lsblk -dn -o NAME,TYPE 2>/dev/null | awk '$2=="disk" && $1 ~ /^nvme/{print $1}'); do
+  out="$(${SUDO} smartctl -a "/dev/$dev" 2>/dev/null)"
+  [[ -z "$out" ]] && out="$(${SUDO} nvme smart-log "/dev/$dev" 2>/dev/null)"
+  if [[ -n "$out" ]]; then
+    printf '%s\n' "$out" > "$BASELINE_DIR/smart_${dev}.txt"
+    info "SMART baseline /dev/$dev -> $BASELINE_DIR/smart_${dev}.txt"
+  else
+    skipw "SMART baseline /dev/$dev" "smartctl/nvme needs root. FIX: run via sudo"
+  fi
+done
+
+# --- Verdict ---------------------------------------------------------------
+n_fail="$(count_fails)"
+hdr "inventory result: $([[ $n_fail -eq 0 ]] && echo "${C_GRN}PASS${C_RST}" || echo "${C_RED}FAIL ($n_fail mismatches)${C_RST}")"
+exit $(( n_fail > 0 ? 1 : 0 ))

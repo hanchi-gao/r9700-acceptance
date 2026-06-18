@@ -1,0 +1,11 @@
+# Runtime outputs — never commit machine results / artifacts
+/results/*
+!/results/.gitkeep
+
+# Build artifacts (gpu-burn clone + compiled fallback)
+/build/
+
+# Editor / OS noise
+*.swp
+.DS_Store
+__pycache__/
