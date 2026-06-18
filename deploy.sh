@@ -22,18 +22,32 @@ if ! command -v apt-get >/dev/null; then
 fi
 
 say "Installing host packages (apt)"
+# Install per-package so one unavailable package (e.g. mcelog is gone from
+# Ubuntu 24.04) doesn't abort the whole transaction and leave the rest uninstalled.
 HOST_PKGS=(
   pciutils fio stress-ng memtester smartmontools nvme-cli lm-sensors
-  ipmitool dmidecode mcelog python3 python3-yaml jq build-essential
+  ipmitool dmidecode python3 python3-yaml jq build-essential
   git curl ca-certificates
 )
 sudo apt-get update -qq
-sudo DEBIAN_FRONTEND=noninteractive apt-get install -y "${HOST_PKGS[@]}" \
-  && ok "host packages installed" || warn "some host packages failed — re-check apt output"
+failed_pkgs=()
+for pkg in "${HOST_PKGS[@]}"; do
+  if sudo DEBIAN_FRONTEND=noninteractive apt-get install -y "$pkg" >/dev/null 2>&1; then
+    ok "$pkg"
+  else
+    failed_pkgs+=("$pkg"); warn "$pkg failed to install"
+  fi
+done
+# mcelog is optional and absent on noble; try it but never fail on it (MCE
+# detection falls back to scanning dmesg for 'Machine check').
+sudo DEBIAN_FRONTEND=noninteractive apt-get install -y mcelog >/dev/null 2>&1 \
+  && ok "mcelog (optional)" || warn "mcelog unavailable — MCE detection falls back to dmesg"
+(( ${#failed_pkgs[@]} == 0 )) && ok "all required host packages installed" \
+  || warn "missing: ${failed_pkgs[*]} — re-run or install manually"
 
 say "ROCm sanity"
 if command -v rocm-smi >/dev/null && rocm-smi --showid >/dev/null 2>&1; then
-  n="$(rocm-smi --showbus 2>/dev/null | grep -c 'PCI Bus')"
+  n="$(rocm-smi --showbus 2>/dev/null | grep -c 'PCI Bus:')"  # data lines only (skip header)
   ok "rocm-smi works — sees $n GPU(s)"
 else
   warn "rocm-smi not working — ROCm/driver must be installed BEFORE this tool can run (./install_rocm.sh)"
