@@ -65,9 +65,13 @@ trap 'rm -f "$TARGET" 2>/dev/null; cleanup_tracked' EXIT INT TERM
 run_fio() {  # run_fio name rw bs
   local name="$1" rw="$2" bs="$3"
   fio --name="$name" --rw="$rw" --bs="$bs" --ioengine=libaio --direct=1 \
-      --iodepth=32 --numjobs=4 --runtime="$DURATION" --time_based --group_reporting \
+      --iodepth=32 --numjobs=4 --runtime="$PER_JOB" --time_based --group_reporting \
       --output-format=json "${FIO_TARGET[@]}" 2>/dev/null
 }
+
+# 3 fio jobs run sequentially — split the total duration across them so the SSD
+# stage stays within the shared burn-in deadline.
+PER_JOB=$(( DURATION / 3 )); (( PER_JOB < 5 )) && PER_JOB=5
 
 # Sequential read/write throughput; random for IOPS sanity.
 for spec in "seqread:read:1M" "seqwrite:write:1M" "randrw:randrw:4k"; do

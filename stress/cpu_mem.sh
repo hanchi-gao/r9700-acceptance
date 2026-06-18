@@ -41,28 +41,37 @@ stress-ng --vm "$vm_workers" --vm-bytes "${vm_each}" --vm-method all --verify \
           > "$RESULTS_DIR/stressng_vm.log" 2>&1 &
 track_pid "$!"
 
-# --- memtester on a smaller slice for stricter pattern coverage --------------
+# --- memtester: strict pattern coverage on a slice, BOUNDED to the deadline --
+# memtester ignores any duration of its own — one "pass" runs ~20 patterns over
+# the whole region and can take 10+ minutes on a large slice. So we cap the
+# region small and wrap it in `timeout` (loops=0 => run continuously; timeout
+# stops it cleanly at the deadline, exit 124, which is NOT a failure).
 if command -v memtester >/dev/null; then
-  mt_mb=$(( free_kb / 1024 / 4 ))   # 25% of available, single pass
-  (( mt_mb > 8192 )) && mt_mb=8192  # cap so it finishes within the window
-  info "cpu_mem: memtester ${mt_mb}MB 1 pass"
-  memtester "${mt_mb}M" 1 > "$RESULTS_DIR/memtester.log" 2>&1 &
+  mt_mb=$(( free_kb / 1024 / 8 ))    # ~12% of available
+  (( mt_mb > 4096 )) && mt_mb=4096   # keep small enough to cycle patterns in-window
+  (( mt_mb < 256 ))  && mt_mb=256
+  info "cpu_mem: memtester ${mt_mb}MB, looping bounded to ${DURATION}s"
+  timeout "${DURATION}s" memtester "${mt_mb}M" 0 > "$RESULTS_DIR/memtester.log" 2>&1 &
   track_pid "$!"
 fi
 
 wait
 
 # --- Judge ----------------------------------------------------------------
-if grep -qiE 'fail|error|incorrect' "$RESULTS_DIR/stressng_cpu.log" "$RESULTS_DIR/stressng_vm.log" 2>/dev/null; then
+# stress-ng prints a log LEVEL field: 'info:', 'fail:', 'error:'. A real failure
+# is a 'fail:'/'error:' level line OR a non-zero "failed: N" summary. Do NOT just
+# grep the word "fail" — the success summary line is "info: [pid] failed: 0".
+if grep -qE 'stress-ng: (fail|error):' "$RESULTS_DIR/stressng_cpu.log" "$RESULTS_DIR/stressng_vm.log" 2>/dev/null \
+   || grep -qE 'failed: [1-9]'        "$RESULTS_DIR/stressng_cpu.log" "$RESULTS_DIR/stressng_vm.log" 2>/dev/null; then
   fail "cpu_mem stress-ng verify" "verification errors found (see stressng_*.log)"
 else
-  pass "cpu_mem stress-ng verify" "no compute/memory verify errors"
+  pass "cpu_mem stress-ng verify" "no compute/memory verify errors (failed: 0)"
 fi
 if [[ -f "$RESULTS_DIR/memtester.log" ]]; then
-  if grep -qiE 'FAILURE|error' "$RESULTS_DIR/memtester.log"; then
+  if grep -qF 'FAILURE' "$RESULTS_DIR/memtester.log"; then
     fail "memtester" "pattern failures (see memtester.log) — bad DIMM"
   else
-    pass "memtester" "all patterns ok"
+    pass "memtester" "no pattern failures (bounded ${DURATION}s)"
   fi
 fi
 info "cpu_mem: done"
