@@ -51,7 +51,6 @@ hdr()  { printf '\n%s== %s ==%s\n' "$C_BOLD" "$*" "$C_RST"; }
 # Each check appends one line "STATUS<TAB>check name<TAB>detail" to
 # $RESULTS_DIR/checks.tsv. Stage exit code derives from whether any FAIL exists.
 CHECKS_TSV="$RESULTS_DIR/checks.tsv"
-: > "$CHECKS_TSV.$$" 2>/dev/null || true   # per-process scratch not used; kept simple
 touch "$CHECKS_TSV"
 
 _record() {  # _record STATUS "name" "detail"
