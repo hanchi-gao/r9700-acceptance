@@ -38,6 +38,8 @@ $EDITOR expected_config.yaml
 
 # STEP 4 — full acceptance run (preflight -> inventory -> burn-in -> report):
 ./run_acceptance.sh --serial SN12345 --duration 30m
+#   or, to auto-mount an NVMe for fio testing (boots from SATA, tests NVMe):
+sudo ./run_with_nvme.sh --serial SN12345 --duration 30m
 ```
 
 The result lands in `results/<serial>_<timestamp>/` as `report.txt`,
