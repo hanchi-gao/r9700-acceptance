@@ -43,6 +43,12 @@ $EDITOR expected_config.yaml
 The result lands in `results/<serial>_<timestamp>/` as `report.txt`,
 `report.json`, telemetry CSV, logs, and a `.tar.gz` QA artifact.
 
+> ⏱️ **Minimum burn-in time: use `--duration 30m` for a real verdict.** The SSD
+> stage divides the duration across 3 fio jobs, so anything under ~15m starves
+> them and can FAIL the drive on bandwidth even when it's perfectly healthy.
+> Use short durations (e.g. `2m`) only to smoke-test the workflow, not to judge a
+> machine.
+
 ## Stages (fail fast, in order)
 
 | Stage | Script | What it does |
@@ -103,6 +109,11 @@ ACCEPTED but the assembly/error coverage is incomplete.
 --config <file>     expected_config.yaml (default)
 --duration <30m>    burn-in length (e.g. 90s, 30m, 1h). One combined stage runs
                     all subsystems at once for this long.
+                    >>> Use at least 30m for a real acceptance run. <<<
+                    The SSD stage splits the duration across 3 fio jobs, so runs
+                    shorter than ~15m give each job too little time and can FAIL
+                    fio on bandwidth even on a healthy drive. Short runs (e.g.
+                    2m) are for smoke-testing the workflow only, not a verdict.
 --mode <full|preflight|inventory|burnin>
 --fio-target <path> SSD test target (default: a guarded file in results/)
 ```
