@@ -33,7 +33,7 @@ info "combined burn-in until $(date -d "@$DEADLINE" '+%H:%M:%S'): GPU GEMM(VRAM)
 track_pid "$!"
 "$HERE/cpu_mem.sh"          --deadline "$DEADLINE" >"$RESULTS_DIR/combined_cpu.log" 2>&1 &
 track_pid "$!"
-ssd_args=(--deadline "$DEADLINE"); [[ -n "$FIO_TARGET" ]] && ssd_args+=(--target "$FIO_TARGET")
+ssd_args=(--deadline "$DEADLINE" --skip-threshold); [[ -n "$FIO_TARGET" ]] && ssd_args+=(--target "$FIO_TARGET")
 "$HERE/ssd.sh" "${ssd_args[@]}" >"$RESULTS_DIR/combined_ssd.log" 2>&1 &
 track_pid "$!"
 

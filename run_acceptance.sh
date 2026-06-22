@@ -86,6 +86,14 @@ if [[ "$MODE" == "full" || "$MODE" == "inventory" ]]; then
   [[ "$MODE" == "inventory" ]] && { generate_report "SEE_CHECKS" "inventory-only run"; exit 0; }
 fi
 
+# ---- Stage 2.5: standalone SSD performance (no GPU/CPU interference) ------
+if [[ "$MODE" == "full" || "$MODE" == "burnin" ]]; then
+  hdr "SSD standalone perf"
+  info "fio standalone (no GPU/CPU load) — testing NVMe true read/write speed"
+  "$REPO_ROOT/stress/ssd.sh" --duration 90 \
+      ${FIO_TARGET:+--target "$FIO_TARGET"} || true
+fi
+
 # ---- Stage 3: burn-in -----------------------------------------------------
 if [[ "$MODE" == "full" || "$MODE" == "burnin" ]]; then
   POLL_SECS="${POLL_SECS:-2}" "$REPO_ROOT/monitor.sh" &
@@ -94,6 +102,7 @@ if [[ "$MODE" == "full" || "$MODE" == "burnin" ]]; then
   info "burn-in: combined (all subsystems at once) for ${DURATION}"
 
   # Single combined stage: GPU GEMM(VRAM) + stress-ng + fio simultaneously.
+  # fio runs with --skip-threshold here; the real perf check was stage 2.5.
   hdr "burn-in: combined";  "$REPO_ROOT/stress/combined.sh" --duration "$DUR_S" \
       ${FIO_TARGET:+--fio-target "$FIO_TARGET"} || true
 

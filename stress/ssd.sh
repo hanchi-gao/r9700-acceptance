@@ -18,9 +18,11 @@ source "$REPO_ROOT/lib/thresholds.sh"
 
 TARGET="$RESULTS_DIR/fio_test.tmp"
 DEADLINE="$(resolve_deadline "$@")"
+SKIP_THRESHOLD=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --target)   TARGET="$2";   shift 2;;
+    --target)          TARGET="$2";   shift 2;;
+    --skip-threshold)  SKIP_THRESHOLD=1; shift;;
     *) shift;;
   esac
 done
@@ -81,10 +83,12 @@ for spec in "seqread:read:1M" "seqwrite:write:1M" "randrw:randrw:4k"; do
   rmbps="$(python3 -c "import json,sys; d=json.load(open('$RESULTS_DIR/fio_${name}.json')); j=d['jobs'][0]; print(round(j['read']['bw']/1024,1), round(j['write']['bw']/1024,1))" 2>/dev/null)"
   read -r r w <<<"$rmbps"
   info "ssd: $name read=${r}MB/s write=${w}MB/s"
-  case "$name" in
-    seqread)  assert_ge "fio seq read MB/s"  "$SSD_SEQ_READ_FLOOR_MBPS"  "${r:-0}";;
-    seqwrite) assert_ge "fio seq write MB/s" "$SSD_SEQ_WRITE_FLOOR_MBPS" "${w:-0}";;
-  esac
+  if (( SKIP_THRESHOLD == 0 )); then
+    case "$name" in
+      seqread)  assert_ge "fio seq read MB/s"  "$SSD_SEQ_READ_FLOOR_MBPS"  "${r:-0}";;
+      seqwrite) assert_ge "fio seq write MB/s" "$SSD_SEQ_WRITE_FLOOR_MBPS" "${w:-0}";;
+    esac
+  fi
 done
 
 info "ssd: done"
