@@ -32,7 +32,8 @@ if os.path.exists(tf):
     with open(tf) as fh:
         r = csv.DictReader(fh)
         for row in r:
-            for k in ("junction_temp","memory_temp","power_draw_w","fan_rpm"):
+            for k in ("junction_temp","memory_temp","power_draw_w","fan_rpm",
+                       "cpu_tctl","cpu_tccd1","nvme_temp"):
                 try: cols.setdefault(k, []).append(float(row[k]))
                 except Exception: pass
     def peak(k): return round(max(cols[k]),1) if cols.get(k) else None
@@ -41,7 +42,10 @@ if os.path.exists(tf):
             "peak_memory_c": peak("memory_temp"),
             "peak_power_w": peak("power_draw_w"),
             "avg_power_w": avg("power_draw_w"),
-            "fan_rpm_max": peak("fan_rpm")}
+            "fan_rpm_max": peak("fan_rpm"),
+            "peak_cpu_tctl_c": peak("cpu_tctl"),
+            "peak_cpu_tccd1_c": peak("cpu_tccd1"),
+            "peak_nvme_c": peak("nvme_temp")}
 
 events = []
 ef = os.path.join(rd, "events.log")
@@ -75,6 +79,9 @@ if tele:
                  f"peak memory: {tele.get('peak_memory_c')} C")
     lines.append(f" peak power: {tele.get('peak_power_w')} W   "
                  f"avg power: {tele.get('avg_power_w')} W")
+    lines.append(f" peak CPU Tctl: {tele.get('peak_cpu_tctl_c')} C   "
+                 f"peak CPU Tccd1: {tele.get('peak_cpu_tccd1_c')} C")
+    lines.append(f" peak NVMe: {tele.get('peak_nvme_c')} C")
 lines.append("-"*64)
 for c in checks:
     if c["status"] == "FAIL":

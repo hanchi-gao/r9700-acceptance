@@ -82,6 +82,24 @@ SSD_NVME_TEMP_FAIL_C=83
 SSD_THROUGHPUT_DROP_FAIL_PCT=15
 
 # =============================================================
+# CPU TEMPERATURE  [°C]  (k10temp: Tctl)
+# -------------------------------------------------------------
+# Ryzen / Threadripper Tctl is the control-loop sensor; on many
+# SKUs Tctl = Tdie + offset. Tccd1 is the actual CCD reading.
+# FAIL at 95°C (AMD default thermal throttle). WARN at 85°C.
+# TUNE: adjust to your specific CPU SKU's Tjmax if different.
+# =============================================================
+CPU_TCTL_WARN_C=85
+CPU_TCTL_FAIL_C=95
+
+# =============================================================
+# NVMe TEMPERATURE  [°C]  (hwmon composite sensor)
+# -------------------------------------------------------------
+# Most NVMe drives throttle at 70-85°C depending on model.
+# These values match the existing smartctl-based thresholds.
+# =============================================================
+
+# =============================================================
 # Error-count deltas (post-burn-in minus baseline). Any increment = FAIL.
 # =============================================================
 AER_CORRECTABLE_DELTA_MAX=0
@@ -94,6 +112,7 @@ VRAM_ERROR_MAX=0
 
 export GPU_JUNCTION_WARN_C GPU_JUNCTION_FAIL_C GPU_JUNCTION_BASELINE_AMBIENT_C \
        GPU_MEMORY_WARN_C GPU_MEMORY_FAIL_C THROTTLE_ALLOWED \
+       CPU_TCTL_WARN_C CPU_TCTL_FAIL_C \
        SSD_SEQ_READ_FLOOR_MBPS SSD_SEQ_WRITE_FLOOR_MBPS \
        SSD_NVME_TEMP_WARN_C SSD_NVME_TEMP_FAIL_C SSD_THROUGHPUT_DROP_FAIL_PCT \
        AER_CORRECTABLE_DELTA_MAX AER_UNCORRECTABLE_DELTA_MAX MCE_COUNT_MAX \

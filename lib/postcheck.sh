@@ -75,6 +75,45 @@ PY
       fail "peak memory temp" "${pm}C >= ${GPU_MEMORY_FAIL_C}C limit"
     fi
   fi
+
+  # --- Peak CPU temp (Tctl) from telemetry ---
+  local pc pn
+  read -r pc <<<"$(python3 - "$tf" <<'PY'
+import sys, csv
+vals=[]
+with open(sys.argv[1]) as fh:
+    for r in csv.DictReader(fh):
+        try: vals.append(float(r.get("cpu_tctl","")))
+        except: pass
+print(round(max(vals),1) if vals else "NA")
+PY
+)"
+  if [[ "$pc" != "NA" ]]; then
+    if awk -v p="$pc" -v f="$CPU_TCTL_FAIL_C" 'BEGIN{exit !(p<f)}'; then
+      pass "peak CPU Tctl" "${pc}C < ${CPU_TCTL_FAIL_C}C"
+    else
+      fail "peak CPU Tctl" "${pc}C >= ${CPU_TCTL_FAIL_C}C limit"
+    fi
+  fi
+
+  # --- Peak NVMe temp from telemetry ---
+  read -r pn <<<"$(python3 - "$tf" <<'PY'
+import sys, csv
+vals=[]
+with open(sys.argv[1]) as fh:
+    for r in csv.DictReader(fh):
+        try: vals.append(float(r.get("nvme_temp","")))
+        except: pass
+print(round(max(vals),1) if vals else "NA")
+PY
+)"
+  if [[ "$pn" != "NA" ]]; then
+    if awk -v p="$pn" -v f="$SSD_NVME_TEMP_FAIL_C" 'BEGIN{exit !(p<f)}'; then
+      pass "peak NVMe temp" "${pn}C < ${SSD_NVME_TEMP_FAIL_C}C"
+    else
+      fail "peak NVMe temp" "${pn}C >= ${SSD_NVME_TEMP_FAIL_C}C limit"
+    fi
+  fi
 fi
 
 # --- MCE / GPU reset / AER from events.log ---------------------------------

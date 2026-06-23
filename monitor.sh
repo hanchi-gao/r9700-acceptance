@@ -16,7 +16,7 @@ DURATION=0
 
 CSV="$RESULTS_DIR/telemetry.csv"
 EVENTS="$RESULTS_DIR/events.log"
-HEADER="timestamp,gpu_id,bdf,junction_temp,memory_temp,edge_temp,power_draw_w,vram_used_mb,vram_total_mb,gpu_clock_mhz,mem_clock_mhz,throttle_status,ecc_total,nvme_temp,fan_rpm,chassis_power_w"
+HEADER="timestamp,gpu_id,bdf,junction_temp,memory_temp,edge_temp,power_draw_w,vram_used_mb,vram_total_mb,gpu_clock_mhz,mem_clock_mhz,throttle_status,ecc_total,nvme_temp,fan_rpm,chassis_power_w,cpu_tctl,cpu_tccd1"
 [[ -f "$CSV" ]] || echo "$HEADER" > "$CSV"
 
 SUDO=""; sudo -n true 2>/dev/null && SUDO="sudo -n"
@@ -39,12 +39,49 @@ scan_events() {
   dmesg_since="$(${SUDO} dmesg 2>/dev/null | wc -l)"
 }
 
+# Read CPU temp from k10temp hwmon (AMD). Returns "Tctl Tccd1" in °C.
+read_cpu_temp() {
+  local dir tctl="N/A" tccd1="N/A"
+  for dir in /sys/class/hwmon/hwmon*; do
+    [[ "$(cat "$dir/name" 2>/dev/null)" == "k10temp" ]] || continue
+    local f label
+    for f in "$dir"/temp*_input; do
+      [[ -f "$f" ]] || continue
+      label="$(cat "${f%_input}_label" 2>/dev/null)"
+      case "$label" in
+        Tctl)  tctl="$(awk '{printf "%.1f",$1/1000}' "$f")";;
+        Tccd1) tccd1="$(awk '{printf "%.1f",$1/1000}' "$f")";;
+      esac
+    done
+    break
+  done
+  echo "$tctl $tccd1"
+}
+
+# Read NVMe composite temp from hwmon (no root needed). Returns °C or N/A.
+read_nvme_temp() {
+  local dir
+  for dir in /sys/class/hwmon/hwmon*; do
+    [[ "$(cat "$dir/name" 2>/dev/null)" == "nvme" ]] || continue
+    local label
+    label="$(cat "$dir/temp1_label" 2>/dev/null)"
+    if [[ "$label" == "Composite" && -f "$dir/temp1_input" ]]; then
+      awk '{printf "%.1f",$1/1000}' "$dir/temp1_input"
+      return
+    fi
+  done
+  echo "N/A"
+}
+
 # Pull one metrics snapshot for all GPUs into the CSV.
 poll_gpus() {
   local ts; ts="$(date '+%Y-%m-%dT%H:%M:%S')"
-  python3 - "$ts" <<'PY' >> "$CSV"
+  local cpu_temps nvme_t
+  read -r cpu_tctl cpu_tccd1 <<< "$(read_cpu_temp)"
+  nvme_t="$(read_nvme_temp)"
+  python3 - "$ts" "$nvme_t" "$cpu_tctl" "$cpu_tccd1" <<'PY' >> "$CSV"
 import sys, json, subprocess
-ts = sys.argv[1]
+ts, nvme_t, cpu_tctl, cpu_tccd1 = sys.argv[1:5]
 def smi(*a):
     try: return json.loads(subprocess.run(["rocm-smi",*a,"--json"],capture_output=True,text=True).stdout)
     except Exception: return {}
@@ -86,13 +123,9 @@ for card in sorted(cards, key=lambda c:int(''.join(ch for ch in c if ch.isdigit(
     row = [ts,gid,str(bdf),num(junction),num(memt),num(edge),num(power),used,tot,
            ''.join(ch for ch in str(sclk) if ch.isdigit() or ch=='.') or "N/A",
            ''.join(ch for ch in str(mclk) if ch.isdigit() or ch=='.') or "N/A",
-           "N/A","N/A","N/A",num(fanr),"N/A"]
+           "N/A","N/A",nvme_t,num(fanr),"N/A",cpu_tctl,cpu_tccd1]
     print(",".join(row))
 PY
-  # NVMe temp (first drive) — patch the last rows' nvme_temp column best-effort
-  local nt
-  nt="$(${SUDO} smartctl -A /dev/nvme0n1 2>/dev/null | awk '/Temperature:/{print $2; exit}')"
-  [[ -n "$nt" ]] && printf '%s\tnvme0n1_temp=%s\n' "$(date '+%Y-%m-%dT%H:%M:%S')" "$nt" >> "$RESULTS_DIR/nvme_temp.log"
 }
 
 info "monitor: polling every ${POLL_SECS}s -> $CSV  (events -> $EVENTS)"
