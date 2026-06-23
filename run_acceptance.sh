@@ -6,18 +6,24 @@
 # Usage:
 #   ./run_acceptance.sh --serial SN123 [--config expected_config.yaml]
 #        [--duration 30m] [--mode full|preflight|inventory|burnin]
-#        [--fio-target PATH]
+#        [--fio-target PATH] [--burnin COMPONENTS]
 #
 # Burn-in is a SINGLE combined stage: GPU GEMM(VRAM) + stress-ng + fio
 # all at once for --duration. So --duration IS the burn-in length (e.g. 30m).
 # The individual stress/*.sh scripts remain runnable standalone (e.g. gpu_hotspot
 # for a max-junction FMA probe) but the orchestrator runs only combined.
+#
+# --burnin selects which subsystems to include in the burn-in stage.
+#   Comma-separated list of: gpu, cpu, ssd, or "all" (default).
+#   Examples: --burnin gpu       (GPU GEMM only)
+#             --burnin gpu,cpu   (GPU + CPU/RAM, no SSD)
+#             --burnin ssd       (SSD fio only)
 set -uo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
 
 SERIAL=""; CONFIG="$REPO_ROOT/expected_config.yaml"; DURATION="30m"
-MODE="full"; FIO_TARGET=""
+MODE="full"; FIO_TARGET=""; BURNIN="all"
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --serial)     SERIAL="$2"; shift 2;;
@@ -25,6 +31,7 @@ while [[ $# -gt 0 ]]; do
     --duration)   DURATION="$2"; shift 2;;
     --mode)       MODE="$2"; shift 2;;
     --fio-target) FIO_TARGET="$2"; shift 2;;
+    --burnin)     BURNIN="$2"; shift 2;;
     -h|--help) grep -E '^#( |$)' "$0" | sed 's/^# \{0,1\}//'; exit 0;;
     *) echo "unknown arg: $1" >&2; exit 2;;
   esac
@@ -55,10 +62,11 @@ echo "serial=$SERIAL" > "$RESULTS_DIR/run.meta"
 echo "config=$CONFIG" >> "$RESULTS_DIR/run.meta"
 echo "duration=$DURATION ($DUR_S s)" >> "$RESULTS_DIR/run.meta"
 echo "mode=$MODE" >> "$RESULTS_DIR/run.meta"
+echo "burnin=$BURNIN" >> "$RESULTS_DIR/run.meta"
 echo "host=$(hostname)" >> "$RESULTS_DIR/run.meta"
 echo "started=$(date -Is)" >> "$RESULTS_DIR/run.meta"
 
-hdr "ACCEPTANCE RUN  serial=$SERIAL  mode=$MODE  duration=$DURATION"
+hdr "ACCEPTANCE RUN  serial=$SERIAL  mode=$MODE  duration=$DURATION  burnin=$BURNIN"
 info "results -> $RESULTS_DIR"
 
 MON_PID=""
@@ -87,7 +95,7 @@ if [[ "$MODE" == "full" || "$MODE" == "inventory" ]]; then
 fi
 
 # ---- Stage 2.5: standalone SSD performance (no GPU/CPU interference) ------
-if [[ "$MODE" == "full" || "$MODE" == "burnin" ]]; then
+if [[ "$MODE" == "full" || "$MODE" == "burnin" ]] && [[ "$BURNIN" == "all" || ",$BURNIN," == *",ssd,"* ]]; then
   hdr "SSD standalone perf"
   info "fio standalone (no GPU/CPU load) — testing NVMe true read/write speed"
   "$REPO_ROOT/stress/ssd.sh" --duration 90 \
@@ -99,11 +107,12 @@ if [[ "$MODE" == "full" || "$MODE" == "burnin" ]]; then
   POLL_SECS="${POLL_SECS:-2}" "$REPO_ROOT/monitor.sh" &
   MON_PID="$!"
   info "monitor started (pid $MON_PID)"
-  info "burn-in: combined (all subsystems at once) for ${DURATION}"
+  info "burn-in: components=$BURNIN for ${DURATION}"
 
-  # Single combined stage: GPU GEMM(VRAM) + stress-ng + fio simultaneously.
+  # Combined stage: selected subsystems simultaneously.
   # fio runs with --skip-threshold here; the real perf check was stage 2.5.
   hdr "burn-in: combined";  "$REPO_ROOT/stress/combined.sh" --duration "$DUR_S" \
+      --components "$BURNIN" \
       ${FIO_TARGET:+--fio-target "$FIO_TARGET"} || true
 
   stop_monitor

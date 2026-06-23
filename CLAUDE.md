@@ -12,6 +12,10 @@ Factory acceptance test suite for 4× ASRock Radeon AI PRO R9700 (gfx1201/RDNA4)
 # Full acceptance (requires ROCm + driver installed, run deploy.sh first):
 sudo ./run_acceptance.sh --serial SN12345 --duration 30m
 
+# Burn only specific subsystems (comma-separated: gpu, cpu, ssd):
+sudo ./run_acceptance.sh --serial SN12345 --duration 30m --burnin gpu
+sudo ./run_acceptance.sh --serial SN12345 --duration 30m --burnin gpu,cpu
+
 # Individual stages:
 ./preflight.sh                    # Stage 1: environment go/no-go
 ./inventory.sh                    # Stage 2: hardware vs expected_config.yaml
