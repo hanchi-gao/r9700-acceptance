@@ -127,22 +127,50 @@ PY
 GPU_PCI_ID="${GPU_PCI_ID:-$(cfg gpu.pci_id 2>/dev/null)}"
 GPU_PCI_ID="${GPU_PCI_ID:-1002:7551}"
 
-# List GPU BDFs in lspci order, normalised to lowercase 0000:xx:xx.x form.
+# List GPU BDFs — prefer lspci, fallback to sysfs.
 gpu_bdfs() {
-  lspci -D -d "$GPU_PCI_ID" 2>/dev/null | awk '{print tolower($1)}'
+  if command -v lspci >/dev/null 2>&1; then
+    lspci -D -d "$GPU_PCI_ID" 2>/dev/null | awk '{print tolower($1)}'
+  else
+    for card_dev in /sys/class/drm/card*/device; do
+      driver="$(basename "$(readlink "$card_dev/driver" 2>/dev/null)")"
+      [[ "$driver" == "amdgpu" ]] || continue
+      basename "$(readlink -f "$card_dev")"
+    done
+  fi
 }
 
-# rocm-smi index -> BDF, lowercase, e.g. "0 0000:03:00.0"
-gpu_index_bdf() {
-  rocm-smi --showbus 2>/dev/null \
-    | awk -F'PCI Bus:' '/PCI Bus:/{gsub(/[ \t]/,"",$2); idx=$0; sub(/.*GPU\[/,"",idx); sub(/\].*/,"",idx); print idx"\t"tolower($2)}'
-}
-
-# Number of GPUs visible to rocm-smi.
+# Number of GPUs.
 gpu_count() { gpu_bdfs | grep -c . ; }
 
-# GPU compute arch for hipcc (auto-detect; expect gfx1201 on R9700).
-GPU_ARCH="${GPU_ARCH:-$(rocminfo 2>/dev/null | grep -oE 'gfx[0-9a-f]+' | head -1)}"
+# bdf_to_slot BDF — look up physical slot + position from expected_config.yaml.
+# Returns "SLOT (從CPU數來第N張)" or the BDF itself if no mapping found.
+bdf_to_slot() {
+  local bdf="$1"
+  local result
+  result="$(python3 - "$CONFIG_FILE" "$bdf" <<'PY'
+import sys, yaml
+f, bdf = sys.argv[1], sys.argv[2].lower()
+with open(f) as fh:
+    d = yaml.safe_load(fh)
+topo = d.get('gpu',{}).get('topology',[])
+for entry in topo:
+    if entry.get('bdf','').lower() == bdf:
+        slot = entry.get('slot', bdf)
+        pos = entry.get('position')
+        if pos:
+            print(f"{slot} (從CPU數來第{pos}張)")
+        else:
+            print(slot)
+        sys.exit(0)
+print(bdf)
+PY
+  )"
+  echo "${result:-$bdf}"
+}
+
+# GPU compute arch (optional, only used if hipcc is present for legacy HIP builds).
+GPU_ARCH="${GPU_ARCH:-$(rocminfo 2>/dev/null | grep -oE 'gfx[0-9a-f]+' | head -1 || true)}"
 GPU_ARCH="${GPU_ARCH:-gfx1201}"
 export GPU_ARCH
 

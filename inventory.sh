@@ -25,27 +25,21 @@ act_count="$(gpu_count)"
 assert_eq "GPU count" "$exp_count" "$act_count"
 
 # --- Per-card VRAM (bytes) + cross-card consistency ------------------------
-# Build "bdf<TAB>bytes" using rocm-smi (cardN order == GPU[N] == showbus order).
+# Read VRAM from sysfs (no rocm-smi needed).
 vram_min="$(cfg gpu.vram_bytes_min)"; vram_min="${vram_min:-33500000000}"
 spread_max="$(cfg gpu.vram_spread_max_frac)"; spread_max="${spread_max:-0.02}"
 
 mapfile -t VRAM_ROWS < <(
-python3 - <<'PY'
-import json, subprocess
-bus = subprocess.run(["rocm-smi","--showbus","--json"],capture_output=True,text=True).stdout
-mem = subprocess.run(["rocm-smi","--showmeminfo","vram","--json"],capture_output=True,text=True).stdout
-try:
-    busj = json.loads(bus); memj = json.loads(mem)
-except Exception:
-    raise SystemExit
-for card in sorted(memj):
-    bdf = busj.get(card,{}).get("PCI Bus","?").lower()
-    b = memj[card].get("VRAM Total Memory (B)","0")
-    print(f"{bdf}\t{b}")
-PY
+  for card_dev in /sys/class/drm/card*/device; do
+    driver="$(basename "$(readlink "$card_dev/driver" 2>/dev/null)")"
+    [[ "$driver" == "amdgpu" ]] || continue
+    bdf="$(basename "$(readlink -f "$card_dev")")"
+    bytes="$(cat "$card_dev/mem_info_vram_total" 2>/dev/null)"
+    [[ -n "$bytes" ]] && printf '%s\t%s\n' "$bdf" "$bytes"
+  done
 )
 if (( ${#VRAM_ROWS[@]} == 0 )); then
-  fail "VRAM per card" "could not read rocm-smi VRAM info"
+  fail "VRAM per card" "could not read VRAM info from sysfs"
 else
   printf '%s\n' "${VRAM_ROWS[@]}" > "$BASELINE_DIR/vram_bytes.tsv"
   vmax=0; vmin=0; first=1
@@ -112,19 +106,37 @@ else
   done < <(paste <(cfg_list gpu.topology bdf) <(cfg_list gpu.topology numa_node))
 fi
 
-# --- VRAM ECC consistency across cards (extra correctness check) -----------
-mapfile -t ECC_STATES < <(rocm-smi --showrasinfo all 2>/dev/null | awk '/UMC/{print $2}')
+# --- VRAM ECC consistency across cards (sysfs RAS) -------------------------
+mapfile -t ECC_STATES < <(
+  for card_dev in /sys/class/drm/card*/device; do
+    driver="$(basename "$(readlink "$card_dev/driver" 2>/dev/null)")"
+    [[ "$driver" == "amdgpu" ]] || continue
+    ras="$(cat "$card_dev/ras/features" 2>/dev/null | grep -o 'umc:[a-z]*' | cut -d: -f2)"
+    [[ -n "$ras" ]] && echo "$ras"
+  done
+)
 if (( ${#ECC_STATES[@]} )); then
-  uniq_states="$(printf '%s\n' "${ECC_STATES[@]}" | sort -u | tr '\n' ',' )"
   if [[ "$(printf '%s\n' "${ECC_STATES[@]}" | sort -u | wc -l)" == "1" ]]; then
-    pass "VRAM ECC consistent" "all cards UMC=${ECC_STATES[0]}"
+    pass "VRAM ECC consistent" "all cards ECC=${ECC_STATES[0]}"
   else
-    fail "VRAM ECC consistent" "cards differ: $uniq_states — make ECC mode uniform across the 4 cards (BIOS/rocm-smi)"
+    uniq_states="$(printf '%s\n' "${ECC_STATES[@]}" | sort -u | tr '\n' ',' )"
+    fail "VRAM ECC consistent" "cards differ: $uniq_states — make ECC mode uniform"
   fi
 else
-  # No UMC rows at all: RAS reporting disabled/empty on every card. Can't confirm
-  # consistency — never silently skip an acceptance check; WARN explicitly.
-  skipw "VRAM ECC consistent" "rocm-smi --showrasinfo lists no UMC block on any card (RAS reporting off?) — could not verify ECC mode"
+  if command -v rocm-smi >/dev/null 2>&1; then
+    mapfile -t ECC_STATES < <(rocm-smi --showrasinfo all 2>/dev/null | awk '/UMC/{print $2}')
+    if (( ${#ECC_STATES[@]} )); then
+      if [[ "$(printf '%s\n' "${ECC_STATES[@]}" | sort -u | wc -l)" == "1" ]]; then
+        pass "VRAM ECC consistent" "all cards UMC=${ECC_STATES[0]}"
+      else
+        fail "VRAM ECC consistent" "cards differ — make ECC mode uniform"
+      fi
+    else
+      skipw "VRAM ECC consistent" "RAS info not available — could not verify ECC mode"
+    fi
+  else
+    skipw "VRAM ECC consistent" "RAS sysfs not available, rocm-smi not installed — skipping ECC check"
+  fi
 fi
 
 # --- DIMM count / total RAM ------------------------------------------------
@@ -140,6 +152,34 @@ fi
 exp_ram="$(cfg memory.total_gb_min)"; exp_ram="${exp_ram:-0}"
 ram_gb="$(awk '/MemTotal/{printf "%.0f", $2/1024/1024}' /proc/meminfo)"
 assert_ge "total RAM (GB)" "$exp_ram" "$ram_gb"
+
+# --- DRAM type + per-DIMM capacity consistency --------------------------------
+exp_dram_type="$(cfg memory.dram_type)"; exp_dram_type="${exp_dram_type:-}"
+if [[ -n "$exp_dram_type" ]]; then
+  dram_info="$(${SUDO} dmidecode -t memory 2>/dev/null)"
+  if [[ -z "$dram_info" ]]; then
+    skipw "DRAM type" "dmidecode unreadable (needs root)"
+  else
+    types="$(grep '^\s*Type:' <<<"$dram_info" | grep -v 'Type Detail' | awk '{print $2}' | grep -v Unknown | sort -u)"
+    if echo "$types" | grep -qi "$exp_dram_type"; then
+      pass "DRAM type" "$exp_dram_type confirmed"
+    else
+      fail "DRAM type" "expected $exp_dram_type, found: $(echo $types | tr '\n' ' ')"
+    fi
+
+    # Per-DIMM capacity — all populated DIMMs must be the same size
+    mapfile -t DIMM_SIZES < <(grep '^\s*Size:' <<<"$dram_info" | grep -v 'No Module' | awk '{print $2, $3}')
+    if (( ${#DIMM_SIZES[@]} > 0 )); then
+      uniq_sizes="$(printf '%s\n' "${DIMM_SIZES[@]}" | sort -u)"
+      n_uniq="$(echo "$uniq_sizes" | wc -l)"
+      if (( n_uniq == 1 )); then
+        pass "DIMM capacity uniform" "${#DIMM_SIZES[@]} DIMMs × ${DIMM_SIZES[0]}"
+      else
+        fail "DIMM capacity uniform" "mixed sizes: $(echo $uniq_sizes | tr '\n' ', ') — all DIMMs should match"
+      fi
+    fi
+  fi
+fi
 
 # --- NVMe count + SMART baseline -------------------------------------------
 exp_nvme="$(cfg storage.nvme_count)"; exp_nvme="${exp_nvme:-1}"

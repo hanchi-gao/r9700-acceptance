@@ -73,59 +73,63 @@ read_nvme_temp() {
   echo "N/A"
 }
 
-# Pull one metrics snapshot for all GPUs into the CSV.
+# Read one sysfs value, or echo N/A.
+read_sysfs() { cat "$1" 2>/dev/null || echo "N/A"; }
+
+# Pull one metrics snapshot for all GPUs into the CSV (sysfs only, no rocm-smi).
 poll_gpus() {
   local ts; ts="$(date '+%Y-%m-%dT%H:%M:%S')"
-  local cpu_temps nvme_t
+  local cpu_tctl cpu_tccd1 nvme_t
   read -r cpu_tctl cpu_tccd1 <<< "$(read_cpu_temp)"
   nvme_t="$(read_nvme_temp)"
-  python3 - "$ts" "$nvme_t" "$cpu_tctl" "$cpu_tccd1" <<'PY' >> "$CSV"
-import sys, json, subprocess
-ts, nvme_t, cpu_tctl, cpu_tccd1 = sys.argv[1:5]
-def smi(*a):
-    try: return json.loads(subprocess.run(["rocm-smi",*a,"--json"],capture_output=True,text=True).stdout)
-    except Exception: return {}
-def g(d,*keys):
-    for k in keys:
-        for kk,v in d.items():
-            if kk.lower()==k.lower() or k.lower() in kk.lower():
-                return v
-    return "N/A"
-bus  = smi("--showbus")
-temp = smi("--showtemp")
-pwr  = smi("--showpower")
-mem  = smi("--showmeminfo","vram")
-clk  = smi("--showclocks")
-fan  = smi("--showfan")
-cards = set(bus)|set(temp)|set(mem)
-def num(x):
-    try: return str(float(x))
-    except Exception: return "N/A"
-for card in sorted(cards, key=lambda c:int(''.join(ch for ch in c if ch.isdigit()) or 0)):
-    gid = ''.join(ch for ch in card if ch.isdigit())
-    bdf = g(bus.get(card,{}),"PCI Bus")
-    t = temp.get(card,{})
-    junction = g(t,"junction","Temperature (Sensor junction)")
-    memt     = g(t,"memory","Temperature (Sensor memory)")
-    edge     = g(t,"edge","Temperature (Sensor edge)")
-    power    = g(pwr.get(card,{}),"Average Graphics Package Power","Current Socket Graphics Package Power","power")
-    m = mem.get(card,{})
-    used = g(m,"VRAM Total Used Memory (B)")
-    tot  = g(m,"VRAM Total Memory (B)")
-    try: used = str(round(float(used)/1048576))
-    except Exception: used="N/A"
-    try: tot = str(round(float(tot)/1048576))
-    except Exception: tot="N/A"
-    c = clk.get(card,{})
-    sclk = g(c,"sclk clock speed","sclk")
-    mclk = g(c,"mclk clock speed","mclk")
-    fanr = g(fan.get(card,{}),"Fan speed (RPM)","fan")
-    row = [ts,gid,str(bdf),num(junction),num(memt),num(edge),num(power),used,tot,
-           ''.join(ch for ch in str(sclk) if ch.isdigit() or ch=='.') or "N/A",
-           ''.join(ch for ch in str(mclk) if ch.isdigit() or ch=='.') or "N/A",
-           "N/A","N/A",nvme_t,num(fanr),"N/A",cpu_tctl,cpu_tccd1]
-    print(",".join(row))
-PY
+
+  local gid=0
+  local dir
+  for dir in /sys/class/hwmon/hwmon*; do
+    [[ "$(cat "$dir/name" 2>/dev/null)" == "amdgpu" ]] || continue
+    local bdf dev_path
+    dev_path="$(readlink -f "$dir/device" 2>/dev/null)"
+    bdf="$(basename "$dev_path")"
+
+    # Temps (millidegrees -> degrees)
+    local junction="N/A" memt="N/A" edge="N/A"
+    local f label
+    for f in "$dir"/temp*_input; do
+      [[ -f "$f" ]] || continue
+      label="$(cat "${f%_input}_label" 2>/dev/null)"
+      case "$label" in
+        junction) junction="$(awk '{printf "%.1f",$1/1000}' "$f")";;
+        mem)      memt="$(awk '{printf "%.1f",$1/1000}' "$f")";;
+        edge)     edge="$(awk '{printf "%.1f",$1/1000}' "$f")";;
+      esac
+    done
+
+    # Power (microwatts -> watts)
+    local power="N/A"
+    [[ -f "$dir/power1_average" ]] && power="$(awk '{printf "%.1f",$1/1000000}' "$dir/power1_average")"
+
+    # Fan
+    local fanr="N/A"
+    [[ -f "$dir/fan1_input" ]] && fanr="$(cat "$dir/fan1_input")"
+
+    # Clocks (Hz -> MHz)
+    local sclk="N/A" mclk="N/A"
+    [[ -f "$dir/freq1_input" ]] && sclk="$(awk '{printf "%d",$1/1000000}' "$dir/freq1_input")"
+    [[ -f "$dir/freq2_input" ]] && mclk="$(awk '{printf "%d",$1/1000000}' "$dir/freq2_input")"
+
+    # VRAM via drm (bytes -> MB)
+    local vram_used="N/A" vram_total="N/A"
+    local card_dev
+    for card_dev in /sys/class/drm/card*/device; do
+      [[ "$(readlink -f "$card_dev")" == "$dev_path" ]] || continue
+      [[ -f "$card_dev/mem_info_vram_total" ]] && vram_total="$(awk '{printf "%d",$1/1048576}' "$card_dev/mem_info_vram_total")"
+      [[ -f "$card_dev/mem_info_vram_used" ]]  && vram_used="$(awk '{printf "%d",$1/1048576}' "$card_dev/mem_info_vram_used")"
+      break
+    done
+
+    echo "$ts,$gid,$bdf,$junction,$memt,$edge,$power,$vram_used,$vram_total,$sclk,$mclk,N/A,N/A,$nvme_t,$fanr,N/A,$cpu_tctl,$cpu_tccd1" >> "$CSV"
+    gid=$((gid+1))
+  done
 }
 
 info "monitor: polling every ${POLL_SECS}s -> $CSV  (events -> $EVENTS)"

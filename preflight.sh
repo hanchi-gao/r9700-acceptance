@@ -1,10 +1,7 @@
 #!/usr/bin/env bash
 # preflight.sh — Stage 1: go/no-go gate.
 # Block known environment problems that would make burn-in a waste of time.
-# Every check prints the PROBLEM and the FIX, then we exit non-zero on any fail.
-#
-# Assumes a freshly assembled machine that has ONLY git + ROCm + driver, then
-# had deploy.sh run on it. If a host tool is missing, the fix is "run deploy.sh".
+# No ROCm required — uses Vulkan for GPU burn, sysfs for monitoring.
 
 set -uo pipefail
 source "$(dirname "$(readlink -f "$0")")/lib/common.sh"
@@ -20,43 +17,29 @@ if [[ -z "$kver" ]]; then
 elif awk -v a="$kver" -v m="$min_kver" 'BEGIN{split(a,x,".");split(m,y,".");exit !(x[1]>y[1]||(x[1]==y[1]&&x[2]>=y[2]))}'; then
   pass "kernel >= $min_kver" "running $(uname -r)"
 else
-  fail "kernel >= $min_kver" "running $(uname -r) — gfx1201 PCI id $GPU_PCI_ID will NOT enumerate on <6.11. FIX: sudo apt install linux-generic-hwe-24.04 && reboot"
+  fail "kernel >= $min_kver" "running $(uname -r) — gfx1201 PCI id $GPU_PCI_ID will NOT enumerate on <6.11"
 fi
 
-# --- ROCm present + version ------------------------------------------------
-min_rocm="$(cfg rocm.min_version)"; min_rocm="${min_rocm:-7.0}"
-rocm_ver=""
-[[ -r /opt/rocm/.info/version ]] && rocm_ver="$(grep -oE '^[0-9]+\.[0-9]+' /opt/rocm/.info/version | head -1)"
-if [[ -z "$rocm_ver" ]] && command -v rocminfo >/dev/null; then
-  rocm_ver="$(rocminfo 2>/dev/null | grep -oE 'ROCk.*' | head -1)"
-fi
-if [[ -z "$rocm_ver" ]]; then
-  fail "ROCm installed" "no /opt/rocm/.info/version and rocminfo missing. FIX: run ./install_rocm.sh (then reboot)"
-elif awk -v a="$rocm_ver" -v m="$min_rocm" 'BEGIN{split(a,x,".");split(m,y,".");exit !(x[1]>y[1]||(x[1]==y[1]&&x[2]>=y[2]))}'; then
-  pass "ROCm >= $min_rocm" "found $rocm_ver"
+# --- GPU driver (amdgpu kernel module) -------------------------------------
+n_amdgpu=0
+for d in /sys/class/hwmon/hwmon*; do
+  [[ "$(cat "$d/name" 2>/dev/null)" == "amdgpu" ]] && n_amdgpu=$((n_amdgpu+1))
+done
+if (( n_amdgpu > 0 )); then
+  pass "amdgpu driver" "$n_amdgpu GPU(s) detected via sysfs"
 else
-  fail "ROCm >= $min_rocm" "found $rocm_ver. FIX: upgrade ROCm"
+  fail "amdgpu driver" "no amdgpu hwmon found — GPU driver not loaded"
 fi
 
-# --- rocm-smi runs ---------------------------------------------------------
-if command -v rocm-smi >/dev/null && rocm-smi --showid >/dev/null 2>&1; then
-  pass "rocm-smi runs"
+# --- Vulkan (GPU burn) -----------------------------------------------------
+if [[ -x "$REPO_ROOT/build/vk_burn" ]]; then
+  pass "vk_burn ready" "Vulkan GPU burn binary present"
 else
-  fail "rocm-smi runs" "rocm-smi missing or errored. FIX: check ROCm install / driver"
-fi
-
-# --- GPU burn build readiness (hipcc + rocBLAS) ----------------------------
-# The burn-in stages compile self-contained HIP kernels at runtime — no docker,
-# no network. FMA hotspot needs hipcc; GEMM VRAM-burn also needs rocBLAS.
-if command -v hipcc >/dev/null; then
-  pass "hipcc present" "GPU burn kernels buildable (arch $GPU_ARCH)"
-else
-  fail "hipcc present" "needed to build the GPU burn kernels. FIX: install ROCm hip-dev (./install_rocm.sh)"
-fi
-if ls /opt/rocm/lib/librocblas.so* >/dev/null 2>&1 && ls /opt/rocm/include/rocblas/rocblas.h >/dev/null 2>&1; then
-  pass "rocBLAS present" "VRAM-burn (gemm) buildable"
-else
-  fail "rocBLAS present" "librocblas/rocblas.h missing — needed for the VRAM-burn stage. FIX: install rocblas/rocblas-dev (ships with ROCm)"
+  if command -v g++ >/dev/null && command -v glslangValidator >/dev/null; then
+    skipw "vk_burn" "not built yet — will build on first run. Or run ./deploy.sh"
+  else
+    fail "vk_burn build tools" "need g++ + glslangValidator. FIX: sudo apt install build-essential libvulkan-dev glslang-tools && ./deploy.sh"
+  fi
 fi
 
 # --- Required host tools ----------------------------------------------------
@@ -80,20 +63,29 @@ fi
 if python3 -c 'import yaml' 2>/dev/null; then
   pass "python3 PyYAML present"
 else
-  fail "python3 PyYAML present" "FIX: sudo apt install python3-yaml  (or run ./deploy.sh)"
+  fail "python3 PyYAML present" "FIX: sudo apt install python3-yaml (or run ./deploy.sh)"
 fi
 
 # Warn-only tools
 for t in ipmitool mcelog; do
-  command -v "$t" >/dev/null 2>&1 || skipw "optional tool: $t" "not installed (warn-only). deploy.sh installs ipmitool; MCE falls back to dmesg"
+  command -v "$t" >/dev/null 2>&1 || skipw "optional tool: $t" "not installed (warn-only). MCE falls back to dmesg"
 done
 
-# host sysctl for vLLM cross-NUMA KV faults
+# ROCm (optional — only needed for LLM bench)
+if command -v rocm-smi >/dev/null 2>&1; then
+  rocm_ver=""
+  [[ -r /opt/rocm/.info/version ]] && rocm_ver="$(grep -oE '^[0-9]+\.[0-9]+' /opt/rocm/.info/version | head -1)"
+  pass "ROCm (optional)" "found ${rocm_ver:-unknown} — LLM bench available"
+else
+  skipw "ROCm (optional)" "not installed — LLM bench will not be available (burn-in works without it)"
+fi
+
+# host sysctl
 nb="$(cat /proc/sys/kernel/numa_balancing 2>/dev/null)"
 if [[ "$nb" == "0" ]]; then
   pass "kernel.numa_balancing=0"
 else
-  skipw "kernel.numa_balancing=0" "currently '$nb'. FIX: sudo sysctl -w kernel.numa_balancing=0 (vLLM cross-NUMA KV faults otherwise)"
+  skipw "kernel.numa_balancing=0" "currently '$nb'. FIX: sudo sysctl -w kernel.numa_balancing=0"
 fi
 
 # --- Verdict ---------------------------------------------------------------
