@@ -65,14 +65,81 @@ PY
     if awk -v p="$pj" -v f="$GPU_JUNCTION_FAIL_C" 'BEGIN{exit !(p<f)}'; then
       pass "peak junction temp" "${pj}C < ${GPU_JUNCTION_FAIL_C}C"
     else
-      fail "peak junction temp" "${pj}C >= ${GPU_JUNCTION_FAIL_C}C limit"
+      # Identify which card(s) exceeded the threshold
+      local hot_cards
+      hot_cards="$(python3 - "$tf" "$GPU_JUNCTION_FAIL_C" "$CONFIG_FILE" <<'PY'
+import sys, csv, yaml
+tf, fail_c, cfg_file = sys.argv[1], float(sys.argv[2]), sys.argv[3]
+topo_map = {}
+try:
+    with open(cfg_file) as f:
+        cfg = yaml.safe_load(f)
+    for e in cfg.get('gpu',{}).get('topology',[]):
+        b = e.get('bdf','').lower()
+        slot = e.get('slot','')
+        pos = e.get('position')
+        label = slot
+        if pos:
+            label += f" (從CPU數來第{pos}張)"
+        topo_map[b] = label
+except: pass
+bad = {}
+with open(tf) as fh:
+    for r in csv.DictReader(fh):
+        try:
+            jt = float(r.get('junction_temp',''))
+            if jt >= fail_c:
+                bdf = r.get('bdf','?')
+                loc = topo_map.get(bdf.lower(), '')
+                key = f"{bdf} [{loc}]" if loc else bdf
+                if key not in bad or jt > bad[key]:
+                    bad[key] = jt
+        except: pass
+for k, v in bad.items():
+    print(f"{k} peak={v}C")
+PY
+      )"
+      fail "peak junction temp" "${pj}C >= ${GPU_JUNCTION_FAIL_C}C — ${hot_cards}"
     fi
   fi
   if [[ "$pm" != "NA" ]]; then
     if awk -v p="$pm" -v f="$GPU_MEMORY_FAIL_C" 'BEGIN{exit !(p<f)}'; then
       pass "peak memory temp" "${pm}C < ${GPU_MEMORY_FAIL_C}C"
     else
-      fail "peak memory temp" "${pm}C >= ${GPU_MEMORY_FAIL_C}C limit"
+      local hot_mem
+      hot_mem="$(python3 - "$tf" "$GPU_MEMORY_FAIL_C" "$CONFIG_FILE" <<'PY'
+import sys, csv, yaml
+tf, fail_c, cfg_file = sys.argv[1], float(sys.argv[2]), sys.argv[3]
+topo_map = {}
+try:
+    with open(cfg_file) as f:
+        cfg = yaml.safe_load(f)
+    for e in cfg.get('gpu',{}).get('topology',[]):
+        b = e.get('bdf','').lower()
+        slot = e.get('slot','')
+        pos = e.get('position')
+        label = slot
+        if pos:
+            label += f" (從CPU數來第{pos}張)"
+        topo_map[b] = label
+except: pass
+bad = {}
+with open(tf) as fh:
+    for r in csv.DictReader(fh):
+        try:
+            mt = float(r.get('memory_temp',''))
+            if mt >= fail_c:
+                bdf = r.get('bdf','?')
+                loc = topo_map.get(bdf.lower(), '')
+                key = f"{bdf} [{loc}]" if loc else bdf
+                if key not in bad or mt > bad[key]:
+                    bad[key] = mt
+        except: pass
+for k, v in bad.items():
+    print(f"{k} peak={v}C")
+PY
+      )"
+      fail "peak memory temp" "${pm}C >= ${GPU_MEMORY_FAIL_C}C — ${hot_mem}"
     fi
   fi
 

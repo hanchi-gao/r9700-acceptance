@@ -36,15 +36,26 @@ gpu:
   # numa_node = -1 for every card; with cpu.numa_nodes == 1 the BDF<->NUMA
   # comparison is informational (auto-pass). On a real dual-NUMA WRX90 box,
   # set numa_node per card and it becomes an enforced check.
+  # slot: physical slot label printed on the motherboard.
+  # position: physical position counting from CPU (1 = closest to CPU).
+  # TUNE: confirm by inserting one card at a time and noting which BDF appears.
   topology:
     - bdf: "0000:03:00.0"
       numa_node: -1
+      slot: "PCIEX16_1"
+      position: 2        # 從CPU數來第2張（中間偏CPU側，散熱最差）
     - bdf: "0000:06:00.0"
       numa_node: -1
+      slot: "PCIEX16_2"
+      position: 4         # 從CPU數來第4張（最遠，散熱最好）
     - bdf: "0000:e3:00.0"
       numa_node: -1
+      slot: "PCIEX16_3"
+      position: 3         # 從CPU數來第3張（中間偏遠側）
     - bdf: "0000:e6:00.0"
       numa_node: -1
+      slot: "PCIEX16_4"
+      position: 1         # 從CPU數來第1張（最近CPU）
 
 cpu:
   numa_nodes: 1                  # TUNE: real WRX90 target is 2
@@ -52,6 +63,7 @@ cpu:
 memory:
   dimm_count: 0                  # 0 = skip (needs sudo dmidecode); set >0 to enforce
   total_gb_min: 180             # this box reports ~194 GB  # TUNE: prod target 256
+  dram_type: "DDR5"              # verify all DIMMs are DDR5 + same capacity
 
 storage:
   nvme_count: 1

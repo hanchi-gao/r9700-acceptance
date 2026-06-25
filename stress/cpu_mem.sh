@@ -21,8 +21,11 @@ fi
 trap cleanup_tracked EXIT INT TERM
 
 ncpu="$(nproc)"
+if [[ "${BURNIN_MODE:-}" == "light" ]]; then
+  ncpu=$(( ncpu / 2 )); (( ncpu < 1 )) && ncpu=1
+fi
 nnode="$(lscpu | awk -F: '/NUMA node\(s\)/{gsub(/ /,"",$2);print $2}')"; nnode="${nnode:-1}"
-info "cpu_mem: ${ncpu} CPUs across ${nnode} NUMA node(s), ${DURATION}s"
+info "cpu_mem: ${ncpu} CPUs across ${nnode} NUMA node(s), ${DURATION}s (mode=${BURNIN_MODE:-full})"
 
 # --- CPU: stress-ng all cores, with verification (catches compute faults) ---
 stress-ng --cpu "$ncpu" --cpu-method all --verify \
@@ -46,7 +49,7 @@ track_pid "$!"
 # the whole region and can take 10+ minutes on a large slice. So we cap the
 # region small and wrap it in `timeout` (loops=0 => run continuously; timeout
 # stops it cleanly at the deadline, exit 124, which is NOT a failure).
-if command -v memtester >/dev/null; then
+if command -v memtester >/dev/null && [[ "${BURNIN_MODE:-}" != "light" ]]; then
   mt_mb=$(( free_kb / 1024 / 8 ))    # ~12% of available
   (( mt_mb > 4096 )) && mt_mb=4096   # keep small enough to cycle patterns in-window
   (( mt_mb < 256 ))  && mt_mb=256

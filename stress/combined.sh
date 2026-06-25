@@ -55,4 +55,13 @@ if want_component ssd; then
 fi
 
 wait
+
+if want_component llm; then
+  if [[ -x "$REPO_ROOT/build/llama-cli" ]]; then
+    info "combined: running LLM bench (sequential, after burn-in)"
+    "$HERE/llm_bench.sh" >"$RESULTS_DIR/combined_llm.log" 2>&1 || true
+  else
+    info "combined: llm requested but llama-cli not found — skipping"
+  fi
+fi
 info "combined: done — see telemetry.csv for peak power / any card power-drop / reset events"

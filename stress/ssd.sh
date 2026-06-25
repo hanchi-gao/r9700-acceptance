@@ -64,11 +64,16 @@ info "ssd: write guard PASSED. Proceeding with fio."
 
 trap 'rm -f "$TARGET" 2>/dev/null; cleanup_tracked' EXIT INT TERM
 
+FIO_IODEPTH=32; FIO_NUMJOBS=4
+[[ "${BURNIN_MODE:-}" == "light" ]] && FIO_IODEPTH=8 && FIO_NUMJOBS=2
+
 run_fio() {  # run_fio name rw bs
   local name="$1" rw="$2" bs="$3"
   fio --name="$name" --rw="$rw" --bs="$bs" --ioengine=libaio --direct=1 \
-      --iodepth=32 --numjobs=4 --runtime="$PER_JOB" --time_based --group_reporting \
-      --output-format=json "${FIO_TARGET[@]}" 2>/dev/null
+      --iodepth="$FIO_IODEPTH" --numjobs="$FIO_NUMJOBS" --runtime="$PER_JOB" --time_based --group_reporting \
+      --output-format=json \
+      --write_bw_log="$RESULTS_DIR/fio_${name}" --log_avg_msec=1000 \
+      "${FIO_TARGET[@]}" 2>/dev/null
 }
 
 # 3 fio jobs run sequentially — split the total duration across them so the SSD

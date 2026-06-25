@@ -18,8 +18,8 @@
 # if a run's ambient is materially higher than the baseline, this
 # threshold must be re-evaluated for that run (see report.txt).
 # =============================================================
-GPU_JUNCTION_WARN_C=98     # early signal: hotter than golden ref, investigate cooling
-GPU_JUNCTION_FAIL_C=103    # golden FMA peak (102) + 1°C; hard limit ~110 leaves margin
+GPU_JUNCTION_WARN_C=95     # early signal: investigate cooling
+GPU_JUNCTION_FAIL_C=100    # production fleet limit; hard limit ~110 leaves 10°C margin
 
 # Inlet ambient the FAIL line is anchored to. Record actual ambient
 # of the golden run here; used by report to flag ambient drift.
@@ -41,8 +41,8 @@ GPU_JUNCTION_BASELINE_AMBIENT_C=28   # golden FMA-peak (102°C) run was at ~28°
 # Ambient still matters: a materially warmer inlet than the golden run pushes
 # memory temp up — re-anchor per site if inlet differs from the golden baseline.
 # =============================================================
-GPU_MEMORY_WARN_C=100
-GPU_MEMORY_FAIL_C=104
+GPU_MEMORY_WARN_C=96
+GPU_MEMORY_FAIL_C=100
 
 # =============================================================
 # THERMAL THROTTLING
@@ -68,15 +68,15 @@ THROTTLE_ALLOWED=0         # 0 = no throttle events tolerated
 # To use as a real perf gate: run fio on the golden machine with the FINAL
 # fio config, then set floor = ~85% of the observed result.
 # =============================================================
-SSD_SEQ_READ_FLOOR_MBPS=4000     # Gen4-era backstop; raise to ~9000 for Gen5 golden
-SSD_SEQ_WRITE_FLOOR_MBPS=3000    # Gen4-era backstop; raise to ~8000 for Gen5 golden
+SSD_SEQ_READ_FLOOR_MBPS=10000    # Gen5 T710: observed ~13800, floor = ~72%
+SSD_SEQ_WRITE_FLOOR_MBPS=9000    # Gen5 T710: observed ~12000, floor = ~75%
 
 # NVMe temperature [°C] — PROVISIONAL, recalibrate to observed steady-state.
 # T710 runs cooler than T700/T705 but Gen5 + GPU-exhaust airflow can still
 # throttle. The real throttle signal is throughput dropping while temp rises;
 # treat absolute temp as secondary. Confirm throttle point from SMART/datasheet.
-SSD_NVME_TEMP_WARN_C=75
-SSD_NVME_TEMP_FAIL_C=83
+SSD_NVME_TEMP_WARN_C=70
+SSD_NVME_TEMP_FAIL_C=80
 # Throughput-drop throttle detector: FAIL if sustained-run MB/s drops more
 # than this % below the run's own early-window average (catches thermal fold).
 SSD_THROUGHPUT_DROP_FAIL_PCT=15
@@ -90,7 +90,7 @@ SSD_THROUGHPUT_DROP_FAIL_PCT=15
 # TUNE: adjust to your specific CPU SKU's Tjmax if different.
 # =============================================================
 CPU_TCTL_WARN_C=85
-CPU_TCTL_FAIL_C=95
+CPU_TCTL_FAIL_C=90
 
 # =============================================================
 # NVMe TEMPERATURE  [°C]  (hwmon composite sensor)
@@ -98,6 +98,15 @@ CPU_TCTL_FAIL_C=95
 # Most NVMe drives throttle at 70-85°C depending on model.
 # These values match the existing smartctl-based thresholds.
 # =============================================================
+
+# =============================================================
+# LLM INFERENCE  [tokens/sec per card]
+# -------------------------------------------------------------
+# Llama 3.1 8B Q4_K_M on a single R9700 (32GB VRAM, HIP).
+# Set to 0 to skip speed check (just verify inference completes).
+# TUNE: run on your golden card and set floor to ~85% of observed.
+# =============================================================
+LLM_TOKENS_PER_SEC_FLOOR=0
 
 # =============================================================
 # Error-count deltas (post-burn-in minus baseline). Any increment = FAIL.
@@ -117,4 +126,4 @@ export GPU_JUNCTION_WARN_C GPU_JUNCTION_FAIL_C GPU_JUNCTION_BASELINE_AMBIENT_C \
        SSD_NVME_TEMP_WARN_C SSD_NVME_TEMP_FAIL_C SSD_THROUGHPUT_DROP_FAIL_PCT \
        AER_CORRECTABLE_DELTA_MAX AER_UNCORRECTABLE_DELTA_MAX MCE_COUNT_MAX \
        GPU_RESET_COUNT_MAX NVME_REALLOCATED_DELTA_MAX NVME_MEDIA_ERROR_DELTA_MAX \
-       VRAM_ERROR_MAX
+       VRAM_ERROR_MAX LLM_TOKENS_PER_SEC_FLOOR
