@@ -2,10 +2,20 @@
 /results/*
 !/results/.gitkeep
 
-# Build artifacts (gpu-burn clone + compiled fallback)
+# Build artifacts
 /build/
+
+# LLM models (too large for git)
+/models/
+
+# Third-party source (llama.cpp etc, built by deploy.sh --with-llm)
+/third_party/
+
+# Old web dashboard (replaced by gui/)
+/web/
 
 # Editor / OS noise
 *.swp
 .DS_Store
 __pycache__/
+*.pyc
