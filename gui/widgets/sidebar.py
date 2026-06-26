@@ -29,6 +29,7 @@ class SideBar(QWidget):
             ("⚡", "STABILITY\nTEST"),
             ("\U0001f4ca", "MONITORING"),
             ("\U0001f916", "AI MODEL"),
+            ("⚙", "SETTINGS"),
         ]):
             btn = QPushButton(f"{icon}  {label}")
             btn.setCheckable(True)

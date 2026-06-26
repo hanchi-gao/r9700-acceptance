@@ -21,15 +21,19 @@ source "$REPO_ROOT/lib/thresholds.sh"
 DEADLINE="$(resolve_deadline "$@")"
 FIO_TARGET=""
 COMPONENTS="all"
+GPU_IDS=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --fio-target)  FIO_TARGET="$2"; shift 2;;
     --components)  COMPONENTS="$2"; shift 2;;
+    --gpu-ids)     GPU_IDS="$2";    shift 2;;
     *) shift;;
   esac
 done
 
-want_component() { [[ "$COMPONENTS" == "all" || ",$COMPONENTS," == *",$1,"* ]]; }
+want_component() {
+  [[ "$1" != "llm" && "$COMPONENTS" == "all" ]] || [[ ",$COMPONENTS," == *",$1,"* ]]
+}
 
 trap cleanup_tracked EXIT INT TERM
 HERE="$(dirname "$(readlink -f "$0")")"
@@ -41,7 +45,9 @@ want_component ssd && selected="${selected:+$selected + }fio"
 info "combined burn-in until $(date -d "@$DEADLINE" '+%H:%M:%S'): $selected"
 
 if want_component gpu; then
-  "$HERE/gpu_vram.sh" --deadline "$DEADLINE" >"$RESULTS_DIR/combined_gpu.log" 2>&1 &
+  gpu_args=(--deadline "$DEADLINE")
+  [[ -n "$GPU_IDS" ]] && gpu_args+=(--gpus "$GPU_IDS")
+  "$HERE/gpu_vram.sh" "${gpu_args[@]}" >"$RESULTS_DIR/combined_gpu.log" 2>&1 &
   track_pid "$!"
 fi
 if want_component cpu; then

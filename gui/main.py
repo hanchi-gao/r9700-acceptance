@@ -15,6 +15,7 @@ from widgets.sidebar import SideBar
 from pages.stress_page import StressPage
 from pages.monitor_page import MonitorPage
 from pages.llm_page import LlmPage
+from pages.settings_page import SettingsPage
 
 
 def apply_dark_theme(app):
@@ -64,9 +65,11 @@ class MainWindow(QMainWindow):
         self.stress_page = StressPage()
         self.monitor_page = MonitorPage()
         self.llm_page = LlmPage()
+        self.settings_page = SettingsPage()
         self.stack.addWidget(self.stress_page)
         self.stack.addWidget(self.monitor_page)
         self.stack.addWidget(self.llm_page)
+        self.stack.addWidget(self.settings_page)
         body_layout.addWidget(self.stack)
 
         root_layout.addWidget(body)

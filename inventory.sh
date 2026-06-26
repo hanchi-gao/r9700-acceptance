@@ -30,9 +30,14 @@ vram_min="$(cfg gpu.vram_bytes_min)"; vram_min="${vram_min:-33500000000}"
 spread_max="$(cfg gpu.vram_spread_max_frac)"; spread_max="${spread_max:-0.02}"
 
 mapfile -t VRAM_ROWS < <(
+  exp_pci_id_lower="${GPU_PCI_ID,,}"  # e.g. "1002:7551"
   for card_dev in /sys/class/drm/card*/device; do
     driver="$(basename "$(readlink "$card_dev/driver" 2>/dev/null)")"
     [[ "$driver" == "amdgpu" ]] || continue
+    # Filter by PCI ID — skip iGPU / BMC graphics / any non-target card
+    vendor="$(cat "$card_dev/vendor" 2>/dev/null | sed 's/0x//')"
+    device="$(cat "$card_dev/device" 2>/dev/null | sed 's/0x//')"
+    [[ "${vendor}:${device}" == "$exp_pci_id_lower" ]] || continue
     bdf="$(basename "$(readlink -f "$card_dev")")"
     bytes="$(cat "$card_dev/mem_info_vram_total" 2>/dev/null)"
     [[ -n "$bytes" ]] && printf '%s\t%s\n' "$bdf" "$bytes"
@@ -150,21 +155,40 @@ if [[ "$exp_dimm" != "0" ]]; then
   fi
 fi
 exp_ram="$(cfg memory.total_gb_min)"; exp_ram="${exp_ram:-0}"
-ram_gb="$(awk '/MemTotal/{printf "%.0f", $2/1024/1024}' /proc/meminfo)"
+# Prefer dmidecode (sums physical DIMMs, unaffected by iGPU UMA reservation).
+# Fall back to /proc/meminfo when no root.
+ram_gb=""
+if [[ -n "$SUDO" ]]; then
+  ram_gb="$(${SUDO} dmidecode -t memory 2>/dev/null | awk '
+    /^\s+Size:/ && $2+0 > 0 {
+      if ($3 == "GB") total += $2
+      else if ($3 == "MB") total += $2/1024
+      else if ($3 == "TB") total += $2*1024
+    }
+    END { if (total > 0) printf "%.0f", total }')"
+fi
+[[ -z "$ram_gb" || "$ram_gb" == "0" ]] && \
+  ram_gb="$(awk '/MemTotal/{printf "%.0f", $2/1024/1024}' /proc/meminfo)"
 assert_ge "total RAM (GB)" "$exp_ram" "$ram_gb"
 
 # --- DRAM type + per-DIMM capacity consistency --------------------------------
 exp_dram_type="$(cfg memory.dram_type)"; exp_dram_type="${exp_dram_type:-}"
 if [[ -n "$exp_dram_type" ]]; then
-  dram_info="$(${SUDO} dmidecode -t memory 2>/dev/null)"
-  if [[ -z "$dram_info" ]]; then
-    skipw "DRAM type" "dmidecode unreadable (needs root)"
+  if [[ -z "$SUDO" ]]; then
+    skipw "DRAM type" "dmidecode needs root — run via sudo"
   else
-    types="$(grep '^\s*Type:' <<<"$dram_info" | grep -v 'Type Detail' | awk '{print $2}' | grep -v Unknown | sort -u)"
-    if echo "$types" | grep -qi "$exp_dram_type"; then
-      pass "DRAM type" "$exp_dram_type confirmed"
+    dram_info="$(${SUDO} dmidecode -t memory 2>/dev/null)"
+    if [[ -z "$dram_info" ]]; then
+      skipw "DRAM type" "dmidecode returned empty (needs root)"
     else
-      fail "DRAM type" "expected $exp_dram_type, found: $(echo $types | tr '\n' ' ')"
+      types="$(grep '^\s*Type:' <<<"$dram_info" | grep -v 'Type Detail' | awk '{print $2}' | grep -v Unknown | sort -u)"
+      if [[ -z "$types" ]]; then
+        skipw "DRAM type" "dmidecode ran but all slots report Unknown (firmware limitation)"
+      elif echo "$types" | grep -qi "$exp_dram_type"; then
+        pass "DRAM type" "$exp_dram_type confirmed"
+      else
+        fail "DRAM type" "expected $exp_dram_type, found: $(echo "$types" | tr '\n' ' ')"
+      fi
     fi
 
     # Per-DIMM capacity — all populated DIMMs must be the same size

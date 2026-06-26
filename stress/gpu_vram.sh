@@ -14,6 +14,10 @@ DEADLINE="$(resolve_deadline "$@")"
 PCT="$(cfg gpu.vram_burn_pct)"; PCT="${PCT:-90}"
 [[ "${BURNIN_MODE:-}" == "light" ]] && PCT=50
 BURN="$REPO_ROOT/build/vk_burn"
+GPU_IDS=""  # comma-separated indices to burn; empty = all
+while [[ $# -gt 0 ]]; do
+  case "$1" in --gpus) GPU_IDS="$2"; shift 2;; *) shift;; esac
+done
 
 trap cleanup_tracked EXIT INT TERM
 
@@ -51,6 +55,11 @@ cp -f "$REPO_ROOT/build/vk_burn.comp.spv" "$(dirname "$BURN")/vk_burn.comp.spv" 
 
 rc=0
 for id in $(seq 0 $((n-1))); do
+  # Skip if GPU_IDS is set and this id is not in the list
+  if [[ -n "$GPU_IDS" && ",$GPU_IDS," != *",$id,"* ]]; then
+    info "  skipping GPU $id [${GPU_BDFS[$id]}] (not selected)"
+    continue
+  fi
   "$BURN" "$DEADLINE" "$PCT" "$id" >"$RESULTS_DIR/vram_gpu${id}.log" 2>&1 &
   track_pid "$!"
   info "  launched Vulkan VRAM burn on GPU $id [${GPU_BDFS[$id]}] (pid $!)"

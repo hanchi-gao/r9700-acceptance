@@ -87,6 +87,7 @@ class MonitorPage(QWidget):
         self._cards = {}        # key -> _SensorCard
         self._checkboxes = {}   # key -> QCheckBox
         self._card_order = []   # keys in insertion order
+        self._groups_added = set()
         self._t0 = None
         self._color_idx = 0
 
@@ -174,6 +175,16 @@ class MonitorPage(QWidget):
             return "%"
         return "°C"
 
+    def _add_group_header(self, group):
+        if group in self._groups_added:
+            return
+        self._groups_added.add(group)
+        stretch = self._checklist_layout.takeAt(self._checklist_layout.count() - 1)
+        hdr = QLabel(group)
+        hdr.setStyleSheet("color:#00d4ff; font-size:11px; font-weight:bold; letter-spacing:1px; padding:8px 0 2px 0;")
+        self._checklist_layout.addWidget(hdr)
+        self._checklist_layout.addStretch()
+
     def _ensure_sensor(self, key, label, group):
         if key in self._cards:
             return
@@ -185,6 +196,7 @@ class MonitorPage(QWidget):
         self._cards[key] = card
         self._card_order.append(key)
 
+        self._add_group_header(group)
         chk = QCheckBox(label)
         chk.setStyleSheet(f"QCheckBox{{color:{color};font-size:12px;padding:2px;}} QCheckBox::indicator{{width:14px;height:14px;}}")
         chk.toggled.connect(lambda checked, k=key: self._toggle_card(k, checked))
@@ -238,7 +250,9 @@ class MonitorPage(QWidget):
 
         for g in data.get("gpus", []):
             gid = g.get("id", "?")
+            bdf = g.get("bdf", "")
             prefix = f"gpu{gid}"
+            group = f"GPU{gid} [{bdf}]" if bdf else f"GPU{gid}"
             for field, label_suffix in [
                 ("junction", "Junction"), ("memory", "VRAM Temp"),
                 ("edge", "Edge"), ("power_w", "Power"),
@@ -247,14 +261,14 @@ class MonitorPage(QWidget):
                 val = g.get(field)
                 if val is not None:
                     key = f"{prefix}_{field}"
-                    self._ensure_sensor(key, f"GPU{gid} {label_suffix}", "GPU")
+                    self._ensure_sensor(key, f"GPU{gid} {label_suffix}", group)
                     self._cards[key].append(t, val)
 
             used = g.get("vram_used_mb")
             total = g.get("vram_total_mb")
             if used and total:
                 key = f"{prefix}_vram_pct"
-                self._ensure_sensor(key, f"GPU{gid} VRAM Usage %", "GPU")
+                self._ensure_sensor(key, f"GPU{gid} VRAM %", group)
                 self._cards[key].append(t, round(used / total * 100, 1))
 
         for field in ["cpu_tctl", "cpu_tccd1"]:

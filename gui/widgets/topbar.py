@@ -34,6 +34,9 @@ class _Gauge(QFrame):
             color = "#2ed573"
         self._value.setStyleSheet(f"color:{color}; font-size:16px; font-weight:bold;")
 
+    def set_title(self, title):
+        self._title.setText(title)
+
 
 class TopBar(QWidget):
     def __init__(self):
@@ -46,12 +49,12 @@ class TopBar(QWidget):
 
         self._gauges = {}
         for name, unit, warn, fail in [
-            ("CPU", "°C", 85, 95),
-            ("GPU Junction", "°C", 98, 103),
-            ("GPU VRAM", "°C", 100, 104),
+            ("CPU", "°C", 85, 90),
+            ("GPU Junc(max)", "°C", 95, 100),
+            ("GPU VRAM(max)", "°C", 96, 100),
             ("GPU Power", "W", None, None),
             ("DRAM", "°C", None, None),
-            ("NVMe", "°C", 75, 83),
+            ("NVMe", "°C", 70, 80),
         ]:
             g = _Gauge(name, unit)
             g._warn = warn
@@ -62,28 +65,38 @@ class TopBar(QWidget):
         lay.addStretch()
 
     def update_data(self, data):
+        # CPU
         cpu = data.get("cpu_tctl")
         g = self._gauges["CPU"]
         g.set_value(cpu, g._warn, g._fail)
 
-        dram_keys = [k for k in data if k.startswith("dram_")]
-        dram_val = data.get(dram_keys[0]) if dram_keys else None
+        # DRAM — average all DRAM sensors
+        dram_vals = [data[k] for k in data if k.startswith("dram_") and data[k] is not None]
         g = self._gauges["DRAM"]
-        g.set_value(dram_val, g._warn, g._fail)
+        if dram_vals:
+            g.set_value(sum(dram_vals) / len(dram_vals), g._warn, g._fail)
+            g.set_title(f"DRAM({len(dram_vals)})")
+        else:
+            g.set_value(None)
 
-        nvme_keys = [k for k in data if k.startswith("nvme_")]
-        nvme_val = data.get(nvme_keys[0]) if nvme_keys else None
+        # NVMe
+        nvme_vals = [data[k] for k in data if k.startswith("nvme_") and data[k] is not None]
         g = self._gauges["NVMe"]
-        g.set_value(nvme_val, g._warn, g._fail)
+        g.set_value(nvme_vals[0] if nvme_vals else None, g._warn, g._fail)
 
+        # GPU — show max across all cards
         gpus = data.get("gpus", [])
         if gpus:
-            junctions = [g["junction"] for g in gpus if g["junction"] is not None]
-            mems = [g["memory"] for g in gpus if g["memory"] is not None]
-            powers = [g["power_w"] for g in gpus if g["power_w"] is not None]
-            gj = self._gauges["GPU Junction"]
+            junctions = [gpu["junction"] for gpu in gpus if gpu.get("junction") is not None]
+            mems = [gpu["memory"] for gpu in gpus if gpu.get("memory") is not None]
+            powers = [gpu["power_w"] for gpu in gpus if gpu.get("power_w") is not None]
+
+            gj = self._gauges["GPU Junc(max)"]
             gj.set_value(max(junctions) if junctions else None, gj._warn, gj._fail)
-            gm = self._gauges["GPU VRAM"]
+
+            gm = self._gauges["GPU VRAM(max)"]
             gm.set_value(max(mems) if mems else None, gm._warn, gm._fail)
+
             gp = self._gauges["GPU Power"]
             gp.set_value(sum(powers) if powers else None, gp._warn, gp._fail)
+            gp.set_title(f"GPU Power({len(powers)}卡)")

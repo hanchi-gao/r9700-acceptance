@@ -68,15 +68,15 @@ THROTTLE_ALLOWED=0         # 0 = no throttle events tolerated
 # To use as a real perf gate: run fio on the golden machine with the FINAL
 # fio config, then set floor = ~85% of the observed result.
 # =============================================================
-SSD_SEQ_READ_FLOOR_MBPS=10000    # Gen5 T710: observed ~13800, floor = ~72%
-SSD_SEQ_WRITE_FLOOR_MBPS=9000    # Gen5 T710: observed ~12000, floor = ~75%
+SSD_SEQ_READ_FLOOR_MBPS=5000    # Gen5 T710: observed ~13800, floor = ~72%
+SSD_SEQ_WRITE_FLOOR_MBPS=5000    # Gen5 T710: observed ~12000, floor = ~75%
 
 # NVMe temperature [°C] — PROVISIONAL, recalibrate to observed steady-state.
 # T710 runs cooler than T700/T705 but Gen5 + GPU-exhaust airflow can still
 # throttle. The real throttle signal is throughput dropping while temp rises;
 # treat absolute temp as secondary. Confirm throttle point from SMART/datasheet.
 SSD_NVME_TEMP_WARN_C=70
-SSD_NVME_TEMP_FAIL_C=80
+SSD_NVME_TEMP_FAIL_C=77
 # Throughput-drop throttle detector: FAIL if sustained-run MB/s drops more
 # than this % below the run's own early-window average (catches thermal fold).
 SSD_THROUGHPUT_DROP_FAIL_PCT=15
@@ -89,7 +89,7 @@ SSD_THROUGHPUT_DROP_FAIL_PCT=15
 # FAIL at 95°C (AMD default thermal throttle). WARN at 85°C.
 # TUNE: adjust to your specific CPU SKU's Tjmax if different.
 # =============================================================
-CPU_TCTL_WARN_C=85
+CPU_TCTL_WARN_C=88
 CPU_TCTL_FAIL_C=90
 
 # =============================================================

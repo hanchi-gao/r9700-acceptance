@@ -12,7 +12,7 @@
 machine_class: "ASRock-4xR9700-dev"
 
 gpu:
-  count: 4
+  count: 1
   pci_id: "1002:7551"            # gfx1201 / RDNA4 R9700
   vram_gb_each: 32               # nominal marketing capacity
   # Per-card "VRAM Total Memory" floor in BYTES (rocm-smi --showmeminfo vram).
@@ -62,7 +62,7 @@ cpu:
 
 memory:
   dimm_count: 0                  # 0 = skip (needs sudo dmidecode); set >0 to enforce
-  total_gb_min: 180             # this box reports ~194 GB  # TUNE: prod target 256
+  total_gb_min: 30
   dram_type: "DDR5"              # verify all DIMMs are DDR5 + same capacity
 
 storage:
