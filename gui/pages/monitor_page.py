@@ -84,10 +84,10 @@ class _SensorCard(QFrame):
 class MonitorPage(QWidget):
     def __init__(self):
         super().__init__()
-        self._cards = {}        # key -> _SensorCard
-        self._checkboxes = {}   # key -> QCheckBox
-        self._card_order = []   # keys in insertion order
-        self._groups_added = set()
+        self._cards = {}            # key -> _SensorCard
+        self._checkboxes = {}       # key -> QCheckBox
+        self._card_order = []       # keys in insertion order
+        self._group_layouts = {}    # group name -> QVBoxLayout of that group container
         self._t0 = None
         self._color_idx = 0
 
@@ -175,15 +175,26 @@ class MonitorPage(QWidget):
             return "%"
         return "°C"
 
-    def _add_group_header(self, group):
-        if group in self._groups_added:
-            return
-        self._groups_added.add(group)
-        stretch = self._checklist_layout.takeAt(self._checklist_layout.count() - 1)
+    def _ensure_group(self, group):
+        """Create a group container if not yet present; return its inner QVBoxLayout."""
+        if group in self._group_layouts:
+            return self._group_layouts[group]
+        # Remove trailing stretch from main layout
+        last = self._checklist_layout.takeAt(self._checklist_layout.count() - 1)
+        # Header label
         hdr = QLabel(group)
-        hdr.setStyleSheet("color:#00d4ff; font-size:11px; font-weight:bold; letter-spacing:1px; padding:8px 0 2px 0;")
+        hdr.setStyleSheet("color:#00d4ff; font-size:11px; font-weight:bold; "
+                          "letter-spacing:1px; padding:8px 0 2px 0;")
         self._checklist_layout.addWidget(hdr)
+        # Inner container for this group's checkboxes
+        container = QWidget()
+        inner = QVBoxLayout(container)
+        inner.setContentsMargins(0, 0, 0, 0)
+        inner.setSpacing(2)
+        self._checklist_layout.addWidget(container)
         self._checklist_layout.addStretch()
+        self._group_layouts[group] = inner
+        return inner
 
     def _ensure_sensor(self, key, label, group):
         if key in self._cards:
@@ -196,14 +207,13 @@ class MonitorPage(QWidget):
         self._cards[key] = card
         self._card_order.append(key)
 
-        self._add_group_header(group)
+        inner = self._ensure_group(group)
         chk = QCheckBox(label)
-        chk.setStyleSheet(f"QCheckBox{{color:{color};font-size:12px;padding:2px;}} QCheckBox::indicator{{width:14px;height:14px;}}")
+        chk.setStyleSheet(f"QCheckBox{{color:{color};font-size:12px;padding:2px;}} "
+                          f"QCheckBox::indicator{{width:14px;height:14px;}}")
         chk.toggled.connect(lambda checked, k=key: self._toggle_card(k, checked))
         self._checkboxes[key] = chk
-        stretch = self._checklist_layout.takeAt(self._checklist_layout.count() - 1)
-        self._checklist_layout.addWidget(chk)
-        self._checklist_layout.addStretch()
+        inner.addWidget(chk)
 
     def _rebuild_grid(self):
         while self._grid_layout.count():
