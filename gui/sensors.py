@@ -7,6 +7,24 @@ import time
 
 from PyQt6.QtCore import QThread, pyqtSignal
 
+_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+def _target_pci_id():
+    """Read gpu.pci_id from expected_config.yaml; fall back to R9700 default."""
+    try:
+        cfg = os.path.join(_REPO_ROOT, "expected_config.yaml")
+        with open(cfg) as f:
+            for line in f:
+                line = line.strip()
+                if line.startswith("pci_id:"):
+                    val = line.split(":", 1)[1].split("#")[0].strip().strip('"').strip("'")
+                    if val:
+                        return val.lower()
+    except OSError:
+        pass
+    return "1002:7551"
+
 
 def _read_hwmon(name_match, label_map):
     result = {v: None for v in label_map.values()}
@@ -107,23 +125,34 @@ def _read_hwmon_temps(hwmon_dir):
 
 
 def read_gpu():
-    """Read GPU data from sysfs (amdgpu hwmon + drm). No rocm-smi needed."""
-    # Map BDF -> hwmon dir for amdgpu devices
+    """Read GPU data from sysfs (amdgpu hwmon + drm). No rocm-smi needed.
+    Only returns cards matching the expected PCI ID (filters out iGPU/BMC)."""
+    target_pci = _target_pci_id()  # e.g. "1002:7551"
+
+    # Map BDF -> hwmon dir, filtered by PCI ID
     hwmon_map = {}
     for d in sorted(glob.glob("/sys/class/hwmon/hwmon*")):
         if _read_sysfs(os.path.join(d, "name")) != "amdgpu":
             continue
         dev = os.path.realpath(os.path.join(d, "device"))
         bdf = os.path.basename(dev)
+        vendor = (_read_sysfs(os.path.join(dev, "vendor")) or "").replace("0x", "").lower()
+        device = (_read_sysfs(os.path.join(dev, "device")) or "").replace("0x", "").lower()
+        if f"{vendor}:{device}" != target_pci:
+            continue
         hwmon_map[bdf] = d
 
-    # Map BDF -> drm card for VRAM info
+    # Map BDF -> drm card for VRAM info (same PCI ID filter)
     vram_map = {}
     for card_dev in sorted(glob.glob("/sys/class/drm/card*/device")):
         driver = os.path.basename(os.path.realpath(os.path.join(card_dev, "driver")))
         if driver != "amdgpu":
             continue
         bdf = os.path.basename(os.path.realpath(card_dev))
+        vendor = (_read_sysfs(os.path.join(card_dev, "vendor")) or "").replace("0x", "").lower()
+        device = (_read_sysfs(os.path.join(card_dev, "device")) or "").replace("0x", "").lower()
+        if f"{vendor}:{device}" != target_pci:
+            continue
         vram_map[bdf] = card_dev
 
     result = []
