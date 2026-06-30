@@ -33,7 +33,9 @@ sudo ./run_acceptance.sh --serial SN12345 --duration 30m --burnin gpu,cpu
 ./stress/llm_bench.sh                   # LLM inference benchmark (needs llama-cli)
 
 # GUI monitoring (OCCT-style):
-python3 gui/main.py
+sudo -E python3 gui/main.py
+# sudo -E required: burn-in mounts NVMe (/mnt/nvme-test) which needs root.
+# -E preserves DISPLAY/XAUTHORITY/XDG_RUNTIME_DIR for the GUI window.
 ```
 
 Use `--duration 30m` minimum for real verdicts — short runs starve fio and produce false FAILs on healthy drives.

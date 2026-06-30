@@ -34,8 +34,14 @@ sudo ./run_acceptance.sh --serial SN12345 --duration 30m
 ### GUI monitoring (OCCT-style)
 
 ```bash
-python3 gui/main.py
+sudo -E python3 gui/main.py
 ```
+
+> **`sudo -E` is required** — the Stability Test page mounts the fio NVMe
+> target (`/mnt/nvme-test`) during burn-in, which needs root.
+> `-E` preserves `DISPLAY` / `XAUTHORITY` / `XDG_RUNTIME_DIR` so the GUI
+> can connect to the display; plain `sudo` without `-E` will fail to open
+> a window.
 
 Three pages:
 - **Stability Test** — Light/Full mode, component selection, start/stop, timer
