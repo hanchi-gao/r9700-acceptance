@@ -1,4 +1,5 @@
 """Monitoring page — sensor checklist + individual chart cards, 2 per row."""
+import re
 import time
 from collections import deque
 
@@ -88,6 +89,7 @@ class MonitorPage(QWidget):
         self._checkboxes = {}       # key -> QCheckBox
         self._card_order = []       # keys in insertion order
         self._group_layouts = {}    # group name -> QVBoxLayout of that group container
+        self._field_colors = {}     # field-type -> color (shared across GPU groups)
         self._t0 = None
         self._color_idx = 0
 
@@ -149,6 +151,15 @@ class MonitorPage(QWidget):
         self._color_idx += 1
         return c
 
+    def _color_for(self, key):
+        # Strip GPU/DRAM/NVMe index so same field type shares a color across groups.
+        # gpu0_junction -> junction, gpu2_vram_pct -> vram_pct, nvme_0 -> nvme
+        field = re.sub(r'^gpu\d+_', '', key)
+        field = re.sub(r'^(nvme|dram)_\d+$', r'\1', field)
+        if field not in self._field_colors:
+            self._field_colors[field] = self._next_color()
+        return self._field_colors[field]
+
     def _get_thresholds(self, key):
         if "junction" in key:
             t = THRESHOLDS["gpu_junction"]
@@ -199,7 +210,7 @@ class MonitorPage(QWidget):
     def _ensure_sensor(self, key, label, group):
         if key in self._cards:
             return
-        color = self._next_color()
+        color = self._color_for(key)
         t = self._get_thresholds(key)
         unit = self._get_unit(key)
         card = _SensorCard(key, label, color, t.get("warn"), t.get("fail"), unit)
@@ -263,22 +274,24 @@ class MonitorPage(QWidget):
             bdf = g.get("bdf", "")
             prefix = f"gpu{gid}"
             group = f"GPU{gid} [{bdf}]" if bdf else f"GPU{gid}"
+
+            # Always register in fixed order so checklist is consistent across GPUs.
             for field, label_suffix in [
                 ("junction", "Junction"), ("memory", "VRAM Temp"),
                 ("edge", "Edge"), ("power_w", "Power"),
                 ("fan_rpm", "Fan RPM"),
             ]:
+                key = f"{prefix}_{field}"
+                self._ensure_sensor(key, f"GPU{gid} {label_suffix}", group)
                 val = g.get(field)
                 if val is not None:
-                    key = f"{prefix}_{field}"
-                    self._ensure_sensor(key, f"GPU{gid} {label_suffix}", group)
                     self._cards[key].append(t, val)
 
+            key = f"{prefix}_vram_pct"
+            self._ensure_sensor(key, f"GPU{gid} VRAM %", group)
             used = g.get("vram_used_mb")
             total = g.get("vram_total_mb")
             if used and total:
-                key = f"{prefix}_vram_pct"
-                self._ensure_sensor(key, f"GPU{gid} VRAM %", group)
                 self._cards[key].append(t, round(used / total * 100, 1))
 
         for field in ["cpu_tctl", "cpu_tccd1"]:

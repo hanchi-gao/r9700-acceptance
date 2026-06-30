@@ -12,7 +12,7 @@
 machine_class: "ASRock-4xR9700-dev"
 
 gpu:
-  count: 1
+  count: 4
   pci_id: "1002:7551"            # gfx1201 / RDNA4 R9700
   vram_gb_each: 32               # nominal marketing capacity
   # Per-card "VRAM Total Memory" floor in BYTES (rocm-smi --showmeminfo vram).
@@ -51,18 +51,18 @@ gpu:
     - bdf: "0000:e3:00.0"
       numa_node: -1
       slot: "PCIEX16_3"
-      position: 3         # 從CPU數來第3張（中間偏遠側）
+      position: 1         # 從CPU數來第1張（最靠CPU，最熱）
     - bdf: "0000:e6:00.0"
       numa_node: -1
       slot: "PCIEX16_4"
-      position: 1         # 從CPU數來第1張（最近CPU）
+      position: 3         # 從CPU數來第3張
 
 cpu:
   numa_nodes: 1                  # TUNE: real WRX90 target is 2
 
 memory:
   dimm_count: 0                  # 0 = skip (needs sudo dmidecode); set >0 to enforce
-  total_gb_min: 30
+  total_gb_min: 180
   dram_type: "DDR5"              # verify all DIMMs are DDR5 + same capacity
 
 storage:

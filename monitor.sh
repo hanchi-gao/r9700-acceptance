@@ -47,10 +47,10 @@ read_cpu_temp() {
     local f label
     for f in "$dir"/temp*_input; do
       [[ -f "$f" ]] || continue
-      label="$(cat "${f%_input}_label" 2>/dev/null)"
+      label="$(read_sysfs "${f%_input}_label")"
       case "$label" in
-        Tctl)  tctl="$(awk '{printf "%.1f",$1/1000}' "$f")";;
-        Tccd1) tccd1="$(awk '{printf "%.1f",$1/1000}' "$f")";;
+        Tctl)  tctl="$(read_scaled "$f" 1000 "%.1f")";;
+        Tccd1) tccd1="$(read_scaled "$f" 1000 "%.1f")";;
       esac
     done
     break
@@ -64,17 +64,32 @@ read_nvme_temp() {
   for dir in /sys/class/hwmon/hwmon*; do
     [[ "$(cat "$dir/name" 2>/dev/null)" == "nvme" ]] || continue
     local label
-    label="$(cat "$dir/temp1_label" 2>/dev/null)"
+    label="$(read_sysfs "$dir/temp1_label")"
     if [[ "$label" == "Composite" && -f "$dir/temp1_input" ]]; then
-      awk '{printf "%.1f",$1/1000}' "$dir/temp1_input"
+      read_scaled "$dir/temp1_input" 1000 "%.1f"
       return
     fi
   done
   echo "N/A"
 }
 
-# Read one sysfs value, or echo N/A.
-read_sysfs() { cat "$1" 2>/dev/null || echo "N/A"; }
+# Read one sysfs value with one retry on EBUSY, or echo N/A.
+read_sysfs() {
+  local v
+  if v="$(cat "$1" 2>/dev/null)"; then
+    echo "$v"
+  else
+    sleep 0.05
+    cat "$1" 2>/dev/null || echo "N/A"
+  fi
+}
+
+# Read and scale a sysfs integer: read_scaled FILE DIVISOR PRINTF_FMT
+read_scaled() {
+  local v; v="$(read_sysfs "$1")"
+  [[ "$v" == "N/A" || -z "$v" ]] && echo "N/A" && return
+  awk -v v="$v" -v d="$2" -v fmt="$3" 'BEGIN{printf fmt, v/d}'
+}
 
 # Pull one metrics snapshot for all GPUs into the CSV (sysfs only, no rocm-smi).
 poll_gpus() {
@@ -96,34 +111,34 @@ poll_gpus() {
     local f label
     for f in "$dir"/temp*_input; do
       [[ -f "$f" ]] || continue
-      label="$(cat "${f%_input}_label" 2>/dev/null)"
+      label="$(read_sysfs "${f%_input}_label")"
       case "$label" in
-        junction) junction="$(awk '{printf "%.1f",$1/1000}' "$f")";;
-        mem)      memt="$(awk '{printf "%.1f",$1/1000}' "$f")";;
-        edge)     edge="$(awk '{printf "%.1f",$1/1000}' "$f")";;
+        junction) junction="$(read_scaled "$f" 1000 "%.1f")";;
+        mem)      memt="$(read_scaled "$f" 1000 "%.1f")";;
+        edge)     edge="$(read_scaled "$f" 1000 "%.1f")";;
       esac
     done
 
     # Power (microwatts -> watts)
     local power="N/A"
-    [[ -f "$dir/power1_average" ]] && power="$(awk '{printf "%.1f",$1/1000000}' "$dir/power1_average")"
+    [[ -f "$dir/power1_average" ]] && power="$(read_scaled "$dir/power1_average" 1000000 "%.1f")"
 
     # Fan
     local fanr="N/A"
-    [[ -f "$dir/fan1_input" ]] && fanr="$(cat "$dir/fan1_input")"
+    [[ -f "$dir/fan1_input" ]] && fanr="$(read_sysfs "$dir/fan1_input")"
 
     # Clocks (Hz -> MHz)
     local sclk="N/A" mclk="N/A"
-    [[ -f "$dir/freq1_input" ]] && sclk="$(awk '{printf "%d",$1/1000000}' "$dir/freq1_input")"
-    [[ -f "$dir/freq2_input" ]] && mclk="$(awk '{printf "%d",$1/1000000}' "$dir/freq2_input")"
+    [[ -f "$dir/freq1_input" ]] && sclk="$(read_scaled "$dir/freq1_input" 1000000 "%d")"
+    [[ -f "$dir/freq2_input" ]] && mclk="$(read_scaled "$dir/freq2_input" 1000000 "%d")"
 
     # VRAM via drm (bytes -> MB)
     local vram_used="N/A" vram_total="N/A"
     local card_dev
     for card_dev in /sys/class/drm/card*/device; do
       [[ "$(readlink -f "$card_dev")" == "$dev_path" ]] || continue
-      [[ -f "$card_dev/mem_info_vram_total" ]] && vram_total="$(awk '{printf "%d",$1/1048576}' "$card_dev/mem_info_vram_total")"
-      [[ -f "$card_dev/mem_info_vram_used" ]]  && vram_used="$(awk '{printf "%d",$1/1048576}' "$card_dev/mem_info_vram_used")"
+      [[ -f "$card_dev/mem_info_vram_total" ]] && vram_total="$(read_scaled "$card_dev/mem_info_vram_total" 1048576 "%d")"
+      [[ -f "$card_dev/mem_info_vram_used" ]]  && vram_used="$(read_scaled "$card_dev/mem_info_vram_used" 1048576 "%d")"
       break
     done
 

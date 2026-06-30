@@ -11,7 +11,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QFont
 
-from burnin import BurninThread
+from burnin import BurninThread, list_nvme_drives
 
 
 def _enumerate_gpus():
@@ -95,6 +95,11 @@ class StressPage(QWidget):
             chk.setChecked(True)
             chk.setStyleSheet(chk_style)
             left.addWidget(chk)
+
+        self._lbl_nvme = QLabel()
+        self._lbl_nvme.setStyleSheet("color:#888; font-size:11px; padding:1px 6px 4px 22px;")
+        left.addWidget(self._lbl_nvme)
+        self._refresh_nvme_combo()
 
         left.addSpacing(24)
 
@@ -329,6 +334,7 @@ class StressPage(QWidget):
             return
 
         gpu_ids = self._get_gpu_ids()
+        self._refresh_nvme_combo()
         self._burnin = BurninThread(comps, duration, mode, gpu_ids, full_acceptance, serial)
         self._lbl_results_path.setText(f"Results → {self._burnin.results_dir}")
         self._burnin.log_line.connect(self._append_log)
@@ -350,10 +356,22 @@ class StressPage(QWidget):
     def _append_log(self, line):
         self._log.append(line)
 
+    def _refresh_nvme_combo(self):
+        drives = list_nvme_drives()
+        if not drives:
+            self._lbl_nvme.setText("NVMe: none detected")
+            return
+        parts = []
+        for dev, mnt, size, model in drives:
+            name = os.path.basename(dev)
+            parts.append(f"{name} ({size})")
+        self._lbl_nvme.setText("NVMe: " + "  |  ".join(parts))
+
     def _on_stopped(self):
         self._timer.stop()
         self._btn_start.setEnabled(True)
         self._btn_stop.setEnabled(False)
+        self._refresh_nvme_combo()
 
     def _on_finished(self, rc):
         if rc == 0:
