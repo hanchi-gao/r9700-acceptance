@@ -1,0 +1,10 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=R9700 Acceptance
+Comment=Factory acceptance test suite for 4× ASRock Radeon AI PRO R9700
+Exec=/home/asrock/r9700-acceptance/launch_gui.sh
+Icon=preferences-system
+Terminal=false
+Categories=System;HardwareSettings;
+StartupNotify=true
