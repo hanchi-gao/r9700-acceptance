@@ -155,6 +155,9 @@ echo ""
 echo "  R9700 Acceptance Test Suite — Offline Installer"
 echo ""
 
+SELF="$(readlink -f "$0")"
+SOURCE_DIR="$(dirname "$SELF")"
+
 TMPDIR_INST="$(mktemp -d)"
 cleanup() { rm -rf "$TMPDIR_INST"; }
 trap cleanup EXIT
@@ -163,7 +166,7 @@ echo "Extracting bundle..."
 SKIP=$(grep -n "^__PAYLOAD_B64__$" "$0" | cut -d: -f1)
 tail -n +"$((SKIP + 1))" "$0" | base64 -d | tar -xzf - -C "$TMPDIR_INST"
 
-bash "$TMPDIR_INST/bundle/install.sh" "$TMPDIR_INST/bundle"
+bash "$TMPDIR_INST/bundle/install.sh" "$TMPDIR_INST/bundle" "$SOURCE_DIR"
 exit 0
 
 __PAYLOAD_B64__

@@ -21,6 +21,18 @@ def _real_home():
         return os.path.expanduser("~")
 
 
+def _results_base():
+    """Return the configured results base directory."""
+    conf = os.path.join(REPO_ROOT, "results_path.conf")
+    try:
+        path = open(conf).read().strip()
+        if path and os.path.isdir(path):
+            return path
+    except Exception:
+        pass
+    return os.path.join(_real_home(), "r9700-results")
+
+
 def _chown_to_user(path):
     """Recursively chown path to the original (non-root) user."""
     user = os.environ.get("SUDO_USER") or os.environ.get("USER", "")
@@ -151,7 +163,7 @@ class BurninThread(QThread):
         self._start_time = None
         self._nvme_we_mounted = False
         ts = time.strftime("%Y%m%d_%H%M%S")
-        results_base = os.path.join(_real_home(), "r9700-results")
+        results_base = _results_base()
         if full_acceptance and serial:
             self.results_dir = os.path.join(results_base, f"{serial}_{ts}")
         else:

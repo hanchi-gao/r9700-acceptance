@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 # install.sh — offline installer, runs inside the self-extracting .run bundle.
-# Called as:  bash install.sh <bundle_dir>
+# Called as:  bash install.sh <bundle_dir> [source_dir]
 # Must be run as root (sudo bash r9700-acceptance.run).
 
 set -euo pipefail
 
 BUNDLE="${1:-$(dirname "$(readlink -f "$0")")}"
+SOURCE_DIR="${2:-}"          # directory where .run file lives = where results go
 INSTALL_DIR="/opt/r9700-acceptance"
 SUDOERS_FILE="/etc/sudoers.d/r9700-gui"
 DESKTOP_SYSTEM="/usr/share/applications/r9700-acceptance.desktop"
@@ -109,6 +110,18 @@ rsync -a --delete \
 chmod +x "$INSTALL_DIR"/*.sh "$INSTALL_DIR"/stress/*.sh \
          "$INSTALL_DIR"/lib/*.sh "$INSTALL_DIR"/launch_gui.sh 2>/dev/null || true
 info "Installed to $INSTALL_DIR"
+
+# ── Write results path config ─────────────────────────────────────────────────
+# Results go next to the .run installer file; fall back to ~/r9700-results
+if [[ -n "$SOURCE_DIR" && -d "$SOURCE_DIR" ]]; then
+  RESULTS_BASE="$SOURCE_DIR/results"
+else
+  RESULTS_BASE="$REAL_HOME/r9700-results"
+fi
+mkdir -p "$RESULTS_BASE"
+chown "$REAL_USER:" "$RESULTS_BASE"
+echo "$RESULTS_BASE" > "$INSTALL_DIR/results_path.conf"
+info "Results will be saved to: $RESULTS_BASE"
 
 # ── Step 4: install pre-compiled vk_burn ─────────────────────────────────────
 step "Setting up GPU burn binary"
