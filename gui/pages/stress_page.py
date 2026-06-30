@@ -351,7 +351,10 @@ class StressPage(QWidget):
     def force_stop(self):
         if self._burnin and self._burnin.isRunning():
             self._burnin.stop()
-            self._burnin.wait(5000)
+            if not self._burnin.wait(3000):
+                # SIGTERM not enough (fio in D state) — escalate to SIGKILL
+                self._burnin._kill_proc_group()
+                self._burnin.wait(2000)
 
     def _append_log(self, line):
         self._log.append(line)

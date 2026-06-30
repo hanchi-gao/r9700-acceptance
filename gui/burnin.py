@@ -277,5 +277,13 @@ class BurninThread(QThread):
             try:
                 os.killpg(os.getpgid(self._proc.pid), signal.SIGTERM)
                 self.log_line.emit("[STOP] sent SIGTERM to process group")
-            except ProcessLookupError:
+            except (ProcessLookupError, OSError):
+                pass
+
+    def _kill_proc_group(self):
+        """Escalate to SIGKILL — use after SIGTERM timeout."""
+        if self._proc:
+            try:
+                os.killpg(os.getpgid(self._proc.pid), signal.SIGKILL)
+            except (ProcessLookupError, OSError):
                 pass

@@ -212,7 +212,11 @@ track_container() { TRACKED_CONTAINERS+=("$1"); }
 cleanup_tracked() {
   local p c
   for p in "${TRACKED_PIDS[@]:-}"; do
-    [[ -n "$p" ]] && kill "$p" 2>/dev/null || true
+    [[ -n "$p" ]] && kill -TERM "$p" 2>/dev/null || true
+  done
+  sleep 1
+  for p in "${TRACKED_PIDS[@]:-}"; do
+    [[ -n "$p" ]] && kill -0 "$p" 2>/dev/null && kill -KILL "$p" 2>/dev/null || true
   done
   for c in "${TRACKED_CONTAINERS[@]:-}"; do
     [[ -n "$c" ]] && docker stop -t 5 "$c" >/dev/null 2>&1 || true
