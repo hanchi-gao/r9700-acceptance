@@ -173,6 +173,10 @@ sudo -u "$REAL_USER" gio set \
   "$DESKTOP_DIR/r9700-acceptance.desktop" \
   metadata::trusted true 2>/dev/null || true
 
+# Configure Nautilus to auto-execute scripts on double-click (no "Run in Terminal?" dialog)
+sudo -u "$REAL_USER" gsettings set \
+  org.gnome.nautilus.preferences executable-text-activation 'launch' 2>/dev/null || true
+
 info "Desktop shortcut: $DESKTOP_DIR/r9700-acceptance.desktop"
 
 # ── Done ─────────────────────────────────────────────────────────────────────
@@ -181,9 +185,17 @@ echo -e "${GREEN}═════════════════════
 echo -e "${GREEN}  R9700 Acceptance installed successfully!${NC}"
 echo -e "${GREEN}════════════════════════════════════════════════${NC}"
 echo ""
-echo "  Double-click  ~/Desktop/r9700-acceptance.desktop  to launch"
-echo "  Or run:       $INSTALL_DIR/launch_gui.sh"
+echo "  Config:   $INSTALL_DIR/expected_config.yaml"
+echo "  Results:  $INSTALL_DIR/results/"
 echo ""
-echo "  Config:       $INSTALL_DIR/expected_config.yaml"
-echo "  Results:      $INSTALL_DIR/results/"
+
+# ── Auto-launch GUI ───────────────────────────────────────────────────────────
+step "Launching GUI"
+# Determine display — sudo clears env, so fall back to :0 (standard desktop)
+_DISPLAY="${DISPLAY:-:0}"
+_XAUTH="${XAUTHORITY:-$REAL_HOME/.Xauthority}"
+DISPLAY="$_DISPLAY" XAUTHORITY="$_XAUTH" \
+  python3 "$INSTALL_DIR/gui/main.py" &
+disown $!
+echo "  GUI launching on display $_DISPLAY ..."
 echo ""

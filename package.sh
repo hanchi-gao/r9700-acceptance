@@ -86,12 +86,21 @@ step "Copying repo"
 rsync -a \
   --exclude='.git' \
   --exclude='results/' \
+  --exclude='models/' \
+  --exclude='third_party/' \
+  --exclude='web/' \
   --exclude='__pycache__' \
   --exclude='*.pyc' \
+  --exclude='*.gguf' \
+  --exclude='*.bin' \
   --exclude='r9700-acceptance.run' \
+  --exclude='*.desktop' \
+  --exclude='安裝R9700燒機套件.sh' \
   --exclude='package.sh' \
   "$REPO/" "$BUNDLE/repo/"
-chmod +x "$BUNDLE/repo/install.sh"
+# Place install.sh at bundle root (the .run script looks for bundle/install.sh)
+cp "$REPO/install.sh" "$BUNDLE/install.sh"
+chmod +x "$BUNDLE/install.sh" "$BUNDLE/repo/install.sh"
 info "Repo copied ($(du -sh "$BUNDLE/repo" | cut -f1))"
 
 # ── create archive + self-extracting wrapper ──────────────────────────────────
@@ -166,20 +175,40 @@ chmod +x "$OUT"
 
 FINAL_SIZE=$(du -sh "$OUT" | cut -f1)
 
-# Write a companion .desktop so the USB is truly double-click friendly
-INSTALLER_DESKTOP="$(dirname "$OUT")/Install R9700 Acceptance.desktop"
-cat > "$INSTALLER_DESKTOP" << DEOF
-[Desktop Entry]
-Version=1.0
-Type=Application
-Name=Install R9700 Acceptance Suite
-Comment=First-time setup: installs all dependencies and creates desktop shortcut
-Exec=bash -c "SELF=\$(dirname \$(readlink -f '%k'))/r9700-acceptance.run; gnome-terminal -- bash -c \\"sudo bash '\$SELF'; echo; read -rp 'Press Enter to close...'\\" 2>/dev/null || x-terminal-emulator -e bash -c \\"sudo bash '\$SELF'; echo; read -rp 'Press Enter to close...'\\"  2>/dev/null || sudo bash '\$SELF'"
-Icon=system-software-install
-Terminal=false
-StartupNotify=true
-DEOF
-chmod +x "$INSTALLER_DESKTOP"
+# Write a companion .sh launcher — double-click → "Run in Terminal" → sudo password
+INSTALLER_SH="$(dirname "$OUT")/安裝R9700燒機套件.sh"
+cat > "$INSTALLER_SH" << 'SHEOF'
+#!/usr/bin/env bash
+# 安裝R9700燒機套件.sh
+# Double-click in Nautilus → "Run in Terminal" → enter sudo password → done.
+DIR="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
+RUN="$DIR/r9700-acceptance.run"
+
+if [[ ! -f "$RUN" ]]; then
+  echo "ERROR: r9700-acceptance.run not found in $DIR"
+  echo "Make sure both files are in the same folder."
+  read -rp "Press Enter to close..." _
+  exit 1
+fi
+
+if [[ $EUID -eq 0 ]]; then
+  bash "$RUN"
+elif [[ -t 0 ]]; then
+  exec sudo bash "$RUN"
+else
+  # No terminal (executed directly by file manager) — open one
+  QUOTED_RUN="${RUN//\'/\'\\\'\'}"
+  CMD="sudo bash '$QUOTED_RUN'; echo; read -rp 'Press Enter to close...' _"
+  if command -v gnome-terminal &>/dev/null; then
+    exec gnome-terminal -- bash -c "$CMD"
+  elif command -v xterm &>/dev/null; then
+    exec xterm -e bash -c "$CMD"
+  else
+    exec sudo bash "$RUN"
+  fi
+fi
+SHEOF
+chmod +x "$INSTALLER_SH"
 
 echo ""
 echo -e "${GREEN}════════════════════════════════════════════════${NC}"
@@ -188,10 +217,10 @@ echo -e "${GREEN}═════════════════════
 echo ""
 echo "  Files:"
 echo "    $OUT  ($FINAL_SIZE)"
-echo "    $INSTALLER_DESKTOP"
+echo "    $INSTALLER_SH"
 echo ""
-echo "  Copy both files to USB. On the factory machine:"
-echo "    → Double-click 'Install R9700 Acceptance.desktop'"
+echo "  Copy BOTH files to USB / Desktop. On the factory machine:"
+echo "    → Double-click '安裝R9700燒機套件.sh' → click 'Run in Terminal'"
 echo "    → Enter sudo password once"
-echo "    → Double-click ~/Desktop/R9700 Acceptance icon from then on"
+echo "    → After install: double-click ~/Desktop/R9700 Acceptance icon"
 echo ""
