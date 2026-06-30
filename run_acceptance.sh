@@ -52,8 +52,11 @@ DUR_S="$(dur_to_secs "$DURATION")"
 
 export CONFIG_FILE="$CONFIG"
 TS="$(date +%Y%m%d_%H%M%S)"
-export RESULTS_DIR="$REPO_ROOT/results/${SERIAL}_${TS}"
+REAL_USER="${SUDO_USER:-${USER}}"
+REAL_HOME="$(getent passwd "$REAL_USER" | cut -d: -f6)"
+export RESULTS_DIR="${REAL_HOME}/r9700-results/${SERIAL}_${TS}"
 mkdir -p "$RESULTS_DIR"
+chown "$REAL_USER:" "$RESULTS_DIR" 2>/dev/null || true
 source "$REPO_ROOT/lib/common.sh"
 source "$REPO_ROOT/lib/thresholds.sh"
 source "$REPO_ROOT/lib/report.sh"

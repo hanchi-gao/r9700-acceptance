@@ -1,5 +1,6 @@
 """Burn-in process manager as QThread."""
 import os
+import pwd
 import re
 import signal
 import subprocess
@@ -9,6 +10,34 @@ from PyQt6.QtCore import QThread, pyqtSignal
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 NVME_MNT = "/mnt/nvme-test"
+
+
+def _real_home():
+    """Return the original (non-root) user's home directory."""
+    user = os.environ.get("SUDO_USER") or os.environ.get("USER", "")
+    try:
+        return pwd.getpwnam(user).pw_dir
+    except Exception:
+        return os.path.expanduser("~")
+
+
+def _chown_to_user(path):
+    """Recursively chown path to the original (non-root) user."""
+    user = os.environ.get("SUDO_USER") or os.environ.get("USER", "")
+    if not user or os.geteuid() != 0:
+        return
+    try:
+        entry = pwd.getpwnam(user)
+        uid, gid = entry.pw_uid, entry.pw_gid
+        for dirpath, dirnames, filenames in os.walk(path, topdown=False):
+            for name in filenames + dirnames:
+                try:
+                    os.chown(os.path.join(dirpath, name), uid, gid)
+                except OSError:
+                    pass
+        os.chown(path, uid, gid)
+    except Exception:
+        pass
 
 
 def _os_disk_name():
@@ -122,10 +151,11 @@ class BurninThread(QThread):
         self._start_time = None
         self._nvme_we_mounted = False
         ts = time.strftime("%Y%m%d_%H%M%S")
+        results_base = os.path.join(_real_home(), "r9700-results")
         if full_acceptance and serial:
-            self.results_dir = os.path.join(REPO_ROOT, "results", f"{serial}_{ts}")
+            self.results_dir = os.path.join(results_base, f"{serial}_{ts}")
         else:
-            self.results_dir = os.path.join(REPO_ROOT, "results", f"dashboard_{ts}")
+            self.results_dir = os.path.join(results_base, f"dashboard_{ts}")
 
     @property
     def elapsed(self):
@@ -201,6 +231,7 @@ class BurninThread(QThread):
             self._run_burnin()
 
         self._umount_nvme()
+        _chown_to_user(self.results_dir)
         self._proc = None
         self._start_time = None
         self.stopped.emit()
@@ -209,6 +240,8 @@ class BurninThread(QThread):
         """Quick burn-in via combined.sh — no baseline/monitor/postcheck."""
         results_dir = self.results_dir
         os.makedirs(results_dir, exist_ok=True)
+        # Give ownership to the original user so they can read without sudo
+        _chown_to_user(results_dir)
 
         env = os.environ.copy()
         env["RESULTS_DIR"] = results_dir
