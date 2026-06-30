@@ -120,8 +120,19 @@ cat > "$OUT" << 'HEADER_EOF'
 set -euo pipefail
 
 if [[ $EUID -ne 0 ]]; then
-  echo "This installer requires root. Re-running with sudo..."
-  exec sudo bash "$0" "$@"
+  SELF="$(readlink -f "$0")"
+  # If running inside a terminal, just re-exec with sudo
+  if [[ -t 0 ]]; then
+    exec sudo bash "$SELF" "$@"
+  fi
+  # No terminal (double-clicked in Nautilus) — open one
+  if command -v gnome-terminal &>/dev/null; then
+    exec gnome-terminal -- bash -c "sudo bash '$SELF'; echo; read -rp 'Press Enter to close...'"
+  elif command -v x-terminal-emulator &>/dev/null; then
+    exec x-terminal-emulator -e bash -c "sudo bash '$SELF'; echo; read -rp 'Press Enter to close...'"
+  else
+    exec sudo bash "$SELF" "$@"
+  fi
 fi
 
 echo ""
@@ -154,15 +165,33 @@ base64 "$STAGE/payload.tar.gz" >> "$OUT"
 chmod +x "$OUT"
 
 FINAL_SIZE=$(du -sh "$OUT" | cut -f1)
+
+# Write a companion .desktop so the USB is truly double-click friendly
+INSTALLER_DESKTOP="$(dirname "$OUT")/Install R9700 Acceptance.desktop"
+cat > "$INSTALLER_DESKTOP" << DEOF
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Install R9700 Acceptance Suite
+Comment=First-time setup: installs all dependencies and creates desktop shortcut
+Exec=bash -c "SELF=\$(dirname \$(readlink -f '%k'))/r9700-acceptance.run; gnome-terminal -- bash -c \\"sudo bash '\$SELF'; echo; read -rp 'Press Enter to close...'\\" 2>/dev/null || x-terminal-emulator -e bash -c \\"sudo bash '\$SELF'; echo; read -rp 'Press Enter to close...'\\"  2>/dev/null || sudo bash '\$SELF'"
+Icon=system-software-install
+Terminal=false
+StartupNotify=true
+DEOF
+chmod +x "$INSTALLER_DESKTOP"
+
 echo ""
 echo -e "${GREEN}════════════════════════════════════════════════${NC}"
 echo -e "${GREEN}  Bundle created successfully!${NC}"
 echo -e "${GREEN}════════════════════════════════════════════════${NC}"
 echo ""
-echo "  File:   $OUT"
-echo "  Size:   $FINAL_SIZE"
+echo "  Files:"
+echo "    $OUT  ($FINAL_SIZE)"
+echo "    $INSTALLER_DESKTOP"
 echo ""
-echo "  On the factory machine:"
-echo "    sudo bash r9700-acceptance.run"
-echo "  Or double-click if GNOME marks it as executable."
+echo "  Copy both files to USB. On the factory machine:"
+echo "    → Double-click 'Install R9700 Acceptance.desktop'"
+echo "    → Enter sudo password once"
+echo "    → Double-click ~/Desktop/R9700 Acceptance icon from then on"
 echo ""
