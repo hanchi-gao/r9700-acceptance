@@ -40,35 +40,57 @@ fi
 # Count amdgpu Vulkan-capable GPUs via sysfs
 n=0
 declare -a GPU_BDFS=()
-for d in /sys/class/hwmon/hwmon*; do
-  [[ "$(cat "$d/name" 2>/dev/null)" == "amdgpu" ]] || continue
-  bdf="$(basename "$(readlink -f "$d/device")")"
-  GPU_BDFS+=("$bdf")
-  n=$((n+1))
-done
-(( n == 0 )) && die "no amdgpu GPUs found in sysfs"
-
-info "gpu_vram: Vulkan VRAM burn (fill ${PCT}%) on $n GPU(s) until $(date -d "@$DEADLINE" '+%H:%M:%S')"
-
-# Copy SPIR-V next to binary so vk_burn can find it
+# Enumerate Vulkan devices: only burn R9700s (discrete, name contains R9700)
+# vk_burn --list prints: index<tab>name<tab>deviceType  (2=discrete)
 cp -f "$REPO_ROOT/build/vk_burn.comp.spv" "$(dirname "$BURN")/vk_burn.comp.spv" 2>/dev/null || true
 
+declare -a VK_INDICES=()
+declare -a GPU_BDFS=()
+while IFS=$'\t' read -r idx name dtype; do
+  [[ "$dtype" == "2" ]] || continue          # discrete only
+  [[ "$name" == *"R9700"* ]] || continue     # R9700 only
+  # Match Vulkan index to sysfs BDF via hwmon
+  bdf="unknown"
+  vk_n=${#VK_INDICES[@]}
+  count=0
+  for d in /sys/class/hwmon/hwmon*; do
+    [[ "$(cat "$d/name" 2>/dev/null)" == "amdgpu" ]] || continue
+    devid="$(cat "$(readlink -f "$d/device")/device" 2>/dev/null)"
+    [[ "$devid" == "0x7551" ]] || continue   # R9700 PCI device ID
+    if [[ "$count" -eq "$vk_n" ]]; then
+      bdf="$(basename "$(readlink -f "$d/device")")"
+      break
+    fi
+    count=$((count+1))
+  done
+  VK_INDICES+=("$idx")
+  GPU_BDFS+=("$bdf")
+  n=$((n+1))
+done < <("$BURN" --list 2>/dev/null)
+
+(( n == 0 )) && die "no R9700 GPUs found via Vulkan"
+
+info "gpu_vram: Vulkan VRAM burn (fill ${PCT}%) on $n R9700(s) until $(date -d "@$DEADLINE" '+%H:%M:%S')"
+
 rc=0
-for id in $(seq 0 $((n-1))); do
-  # Skip if GPU_IDS is set and this id is not in the list
-  if [[ -n "$GPU_IDS" && ",$GPU_IDS," != *",$id,"* ]]; then
-    info "  skipping GPU $id [${GPU_BDFS[$id]}] (not selected)"
+for i in $(seq 0 $((n-1))); do
+  vk_id="${VK_INDICES[$i]}"
+  bdf="${GPU_BDFS[$i]}"
+  # Skip if GPU_IDS is set and this bdf/index is not in the list
+  if [[ -n "$GPU_IDS" && ",$GPU_IDS," != *",$vk_id,"* ]]; then
+    info "  skipping GPU $vk_id [$bdf] (not selected)"
     continue
   fi
-  "$BURN" "$DEADLINE" "$PCT" "$id" >"$RESULTS_DIR/vram_gpu${id}.log" 2>&1 &
+  "$BURN" "$DEADLINE" "$PCT" "$vk_id" >"$RESULTS_DIR/vram_gpu${vk_id}.log" 2>&1 &
   track_pid "$!"
-  info "  launched Vulkan VRAM burn on GPU $id [${GPU_BDFS[$id]}] (pid $!)"
+  info "  launched Vulkan VRAM burn on GPU $vk_id [$bdf] (pid $!)"
 done
 
 wait
-for id in $(seq 0 $((n-1))); do
-  log="$RESULTS_DIR/vram_gpu${id}.log"
-  bdf="${GPU_BDFS[$id]}"
+for i in $(seq 0 $((n-1))); do
+  vk_id="${VK_INDICES[$i]}"
+  log="$RESULTS_DIR/vram_gpu${vk_id}.log"
+  bdf="${GPU_BDFS[$i]}"
   slot="$(bdf_to_slot "$bdf")"
   label="$bdf [$slot]"
   done_line="$(grep -h 'done' "$log" 2>/dev/null | tail -1)"

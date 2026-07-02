@@ -61,9 +61,36 @@ static std::string find_spv() {
     exit(1);
 }
 
+static VkInstance create_instance() {
+    VkApplicationInfo app_info{VK_STRUCTURE_TYPE_APPLICATION_INFO};
+    app_info.apiVersion = VK_API_VERSION_1_0;
+    VkInstanceCreateInfo inst_ci{VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO};
+    inst_ci.pApplicationInfo = &app_info;
+    VkInstance instance;
+    VK_CHECK(vkCreateInstance(&inst_ci, nullptr, &instance));
+    return instance;
+}
+
 int main(int argc, char** argv) {
+    // --list mode: print "index\tdeviceName\tdeviceType" for all Vulkan devices
+    if (argc >= 2 && std::string(argv[1]) == "--list") {
+        VkInstance instance = create_instance();
+        uint32_t dev_count = 0;
+        vkEnumeratePhysicalDevices(instance, &dev_count, nullptr);
+        std::vector<VkPhysicalDevice> devs(dev_count);
+        vkEnumeratePhysicalDevices(instance, &dev_count, devs.data());
+        for (uint32_t i = 0; i < dev_count; i++) {
+            VkPhysicalDeviceProperties props;
+            vkGetPhysicalDeviceProperties(devs[i], &props);
+            // deviceType: 1=integrated, 2=discrete, 3=virtual, 4=cpu
+            printf("%u\t%s\t%u\n", i, props.deviceName, props.deviceType);
+        }
+        return 0;
+    }
+
     if (argc < 3) {
         fprintf(stderr, "usage: %s <deadline_epoch> <vram_pct> [gpu_index]\n", argv[0]);
+        fprintf(stderr, "       %s --list\n", argv[0]);
         return 1;
     }
     time_t deadline = (time_t)atoll(argv[1]);
@@ -71,12 +98,7 @@ int main(int argc, char** argv) {
     int gpu_idx = argc > 3 ? atoi(argv[3]) : 0;
 
     // --- Instance ---
-    VkApplicationInfo app_info{VK_STRUCTURE_TYPE_APPLICATION_INFO};
-    app_info.apiVersion = VK_API_VERSION_1_0;
-    VkInstanceCreateInfo inst_ci{VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO};
-    inst_ci.pApplicationInfo = &app_info;
-    VkInstance instance;
-    VK_CHECK(vkCreateInstance(&inst_ci, nullptr, &instance));
+    VkInstance instance = create_instance();
 
     // --- Pick physical device ---
     uint32_t dev_count = 0;
