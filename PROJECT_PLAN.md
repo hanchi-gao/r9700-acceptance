@@ -30,7 +30,7 @@
 ## 2. Core Design Principles (do not violate)
 
 1. **Fail fast, in order.** `preflight → inventory → (abort if either fails) →
-   burn-in`. A mis-assembled machine reports *which* check failed in seconds.
+  burn-in`. A mis-assembled machine reports *which* check failed in seconds.
 
 2. **No hardcoded skips.** The point of acceptance is to *catch* a bad card.
    Never hardcode skipping any GPU. (The VRAM floor + cross-card spread check
@@ -38,7 +38,6 @@
    repaired and the four cards now read a uniform 31.86 GiB.)
 
 3. **Compare against an expected config.** All "correctness" checks compare
-   *actual* hardware to `expected_config.yaml` (count, VRAM, PCIe width/speed,
    BDF↔NUMA, RAM, NVMe). Mismatch → FAIL with the offending detail + BDF.
 
 4. **Automated PASS/FAIL.** Every criterion is a programmatic threshold; the

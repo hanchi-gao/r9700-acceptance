@@ -10,6 +10,13 @@ Factory acceptance test suite for 4× ASRock Radeon AI PRO R9700 (gfx1201/RDNA4)
 
 ```bash
 # Setup (fresh Ubuntu 24.04 machine):
+# Step 0: AMD firmware required for gfx1201 — not included in Ubuntu 24.04
+#         default linux-firmware. Install AMD driver (graphics only, no ROCm,
+#         no DKMS kernel replacement — uses in-kernel amdgpu with kernel ≥ 6.11):
+#   wget https://repo.radeon.com/amdgpu-install/6.4/ubuntu/noble/amdgpu-install_6.4.60400-1_all.deb
+#   sudo apt install ./amdgpu-install_6.4.60400-1_all.deb
+#   sudo amdgpu-install --usecase=graphics --no-dkms && sudo reboot
+
 ./deploy.sh                       # host deps + build Vulkan GPU burn
 ./deploy.sh --with-llm            # also build llama.cpp for LLM test
 
@@ -76,7 +83,7 @@ Use `--duration 30m` minimum for real verdicts — short runs starve fio and pro
 ## Environment notes
 
 - Requires Ubuntu 24.04+ with kernel ≥ 6.11 (6.8 doesn't enumerate gfx1201).
-- GPU burn needs only mesa-vulkan-drivers (Ubuntu default) — no ROCm.
+- GPU burn needs AMD firmware for gfx1201 (not in Ubuntu 24.04 default linux-firmware). Install via `amdgpu-install --usecase=graphics --no-dkms` — no DKMS kernel replacement, no ROCm. In-kernel amdgpu (kernel ≥ 6.11) is sufficient once firmware is present.
 - LLM test optionally uses llama.cpp with Vulkan backend.
 - `mcelog` is absent on Ubuntu 24.04 noble; MCE detection falls back to dmesg scanning.
 - `deploy.sh` installs packages one-by-one so one missing package doesn't abort the rest.

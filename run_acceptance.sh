@@ -58,7 +58,7 @@ CONF_PATH="$REPO_ROOT/results_path.conf"
 if [[ -f "$CONF_PATH" ]]; then
   RESULTS_BASE="$(cat "$CONF_PATH")"
 else
-  RESULTS_BASE="$REAL_HOME/r9700-results"
+  RESULTS_BASE="$REPO_ROOT/results"
 fi
 export RESULTS_DIR="${RESULTS_BASE}/${SERIAL}_${TS}"
 mkdir -p "$RESULTS_DIR"
