@@ -169,21 +169,6 @@ PY
   echo "${result:-$bdf}"
 }
 
-# GPU compute arch (optional, only used if hipcc is present for legacy HIP builds).
-GPU_ARCH="${GPU_ARCH:-$(rocminfo 2>/dev/null | grep -oE 'gfx[0-9a-f]+' | head -1 || true)}"
-GPU_ARCH="${GPU_ARCH:-gfx1201}"
-export GPU_ARCH
-
-# build_hip SRC OUT [extra hipcc args...] — compile a .hip if missing/stale.
-# Self-contained burn kernels (no docker, no network needed). Returns non-zero
-# on build failure.
-build_hip() {
-  local src="$1" out="$2"; shift 2
-  mkdir -p "$(dirname "$out")"
-  [[ -x "$out" && "$out" -nt "$src" ]] && return 0
-  hipcc --offload-arch="$GPU_ARCH" -O3 "$src" -o "$out" "$@" 2>>"$RESULTS_DIR/build.log"
-}
-
 # resolve_deadline ARGS... — parse "--deadline EPOCH" or "--duration SECONDS"
 # (or env DEADLINE_EPOCH) and echo an absolute epoch deadline. Burn-in runs to a
 # shared deadline; all parallel stages stop together.

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # stress/combined.sh — THE burn-in stage: every subsystem loaded simultaneously,
 # sharing one deadline. This is the worst case an acceptance run cares about:
-#   - GPU:       gpu_vram (rocBLAS GEMM) -> fills ~29.5GB VRAM, ~300W, hot HBM
+#   - GPU:       gpu_vram (Vulkan compute) -> fills ~90% VRAM, ~300W, hot HBM
 #   - CPU + RAM: cpu_mem (stress-ng across all cores/channels)
 #   - SSD:       ssd (fio, write-guarded)
 # Running them together validates PSU peak (4 cards + CPU full draw) and worst-
@@ -39,7 +39,7 @@ trap cleanup_tracked EXIT INT TERM
 HERE="$(dirname "$(readlink -f "$0")")"
 
 selected=""
-want_component gpu && selected="${selected:+$selected + }GPU GEMM(VRAM)"
+want_component gpu && selected="${selected:+$selected + }GPU Vulkan(VRAM)"
 want_component cpu && selected="${selected:+$selected + }stress-ng"
 want_component ssd && selected="${selected:+$selected + }fio"
 info "combined burn-in until $(date -d "@$DEADLINE" '+%H:%M:%S'): $selected"
