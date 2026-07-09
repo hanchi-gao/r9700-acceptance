@@ -64,7 +64,6 @@ Three pages:
 | Binary | What it does | Dependencies |
 |---|---|---|
 | `build/vk_burn` (Vulkan compute) | ~300W, fills 90% VRAM, sustained FMA | mesa-vulkan-drivers only |
-| `src/gpu_burn.hip` (legacy FMA) | ~300W, junction stress | ROCm (optional) |
 
 GPUs are addressed by **PCI BDF**, not index. Physical slot position is
 mapped in `expected_config.yaml` — FAIL messages show "從CPU數來第N張".
