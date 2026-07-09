@@ -14,9 +14,6 @@
 # Old web dashboard (replaced by gui/)
 /web/
 
-# Packaged run bundle (self-extracting archive, too large for git)
-*.run
-
 # Firmware blobs
 /firmware/
 
