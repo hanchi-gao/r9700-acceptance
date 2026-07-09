@@ -1,8 +1,7 @@
 # PROJECT_PLAN.md — `r9700-acceptance`
 
 > 4×R9700 newly-assembled server **acceptance test** suite.
-> This document describes the **as-built** architecture (it started as a spec and
-> was revised to match the implementation). Last revised 2026-06-18.
+> This document describes the **as-built** architecture. Last revised 2026-07-09.
 
 ---
 
@@ -38,39 +37,43 @@
    repaired and the four cards now read a uniform 31.86 GiB.)
 
 3. **Compare against an expected config.** All "correctness" checks compare
+   observed values against `expected_config.yaml` (GPU count, VRAM, PCIe,
    BDF↔NUMA, RAM, NVMe). Mismatch → FAIL with the offending detail + BDF.
 
 4. **Automated PASS/FAIL.** Every criterion is a programmatic threshold; the
    operator reads `ACCEPTED`/`REJECTED` + a reason list, not a graph.
 
-5. **Self-contained.** Burn-in uses HIP kernels compiled at runtime with
-   `hipcc` — **no docker, no vLLM, no network**. Only ROCm + driver + the host
-   packages `deploy.sh` installs are required.
+5. **Self-contained. No ROCm required.** GPU burn-in uses a Vulkan compute
+   shader (`src/vk_burn.cpp`) compiled by `deploy.sh` — **no docker, no ROCm,
+   no network at runtime**. Only mesa-vulkan-drivers (Ubuntu default) + the
+   host packages `deploy.sh` installs are required.
 
 6. **Burn-in runs to a shared deadline,** not a precise countdown. The
    orchestrator sets one deadline; all parallel loads stop together.
 
-7. **Address GPUs by PCI BDF, not index.** HIP device order does NOT match
-   rocm-smi order on this platform — telemetry and per-card results key on BDF.
+7. **Address GPUs by PCI BDF, not index.** Device enumeration order is not
+   stable across tools — telemetry and per-card results key on BDF.
 
 8. **Destructive ops are guarded.** Especially `fio` writes — see §8.
 
-9. **Run as root for full coverage.** PCIe LnkSta, NVMe SMART, PCIe AER, and the
-   dmesg MCE/reset scan need root; without it they degrade to WARN (never a
+9. **Run as root for full coverage.** PCIe LnkSta, NVMe SMART, PCIe AER, and
+   the dmesg MCE/reset scan need root; without it they degrade to WARN (never a
    silent skip).
 
 ---
 
 ## 3. Hardware / Software Target
 
-- **GPUs:** 4× ASRock Radeon AI PRO R9700 (gfx1201 / RDNA4), 32 GB each, PCI ID
-  `[1002:7551]`. rocm-smi reports ~31.86 GiB usable per card.
+- **GPUs:** 4× ASRock Radeon AI PRO R9700 (gfx1201 / RDNA4), 32 GB HBM each,
+  PCI ID `[1002:7551]`. Reports ~31.86 GiB usable per card.
 - **Platform:** WRX90 / WS EVO class board. The dev/golden box enumerates as a
   **single NUMA node** (BIOS NPS1); `expected_config.yaml` reflects that.
 - **OS:** Ubuntu 24.04, **kernel ≥ 6.11** (6.8 does **not** enumerate PCI ID
   `1002:7551`; gfx1201 won't appear. `linux-generic-hwe-24.04` is fine).
-- **ROCm:** 7.x (preflight validates ≥ 7.0; includes `hipcc` + `rocBLAS`).
-- **No container / no network at runtime.**
+- **GPU driver:** in-kernel `amdgpu` — requires AMD firmware for gfx1201 (not
+  in Ubuntu 24.04 default linux-firmware). Install via `amdgpu-install
+  --usecase=graphics --no-dkms` (no ROCm, no DKMS kernel replacement).
+- **No ROCm, no container, no network at runtime.**
 
 ---
 
@@ -79,29 +82,35 @@
 ```
 r9700-acceptance/
 ├── README.md
-├── install_rocm.sh          # step 0: one-click ROCm + amdgpu install (Ubuntu quick-start)
-├── deploy.sh                # step 1: install host deps, pre-build burn kernels
-├── expected_config.yaml     # the golden spec this machine class must match
+├── deploy.sh                # install host deps + build Vulkan GPU burn binary
+├── expected_config.yaml     # golden spec this machine class must match
 ├── preflight.sh             # Stage 1: go/no-go gate
 ├── inventory.sh             # Stage 2: enumerate + compare vs expected (+ baselines)
 ├── run_acceptance.sh        # orchestrator → PASS/FAIL report
+├── burn.sh                  # headless server burn-in (no GUI)
 ├── monitor.sh               # background telemetry logger (CSV) + dmesg event scan
 ├── lib/
-│   ├── common.sh            # logging, PASS/FAIL accumulator, yaml reader, build_hip, resolve_deadline, BDF helpers
+│   ├── common.sh            # logging, PASS/FAIL accumulator, yaml reader, resolve_deadline, BDF helpers
 │   ├── thresholds.sh        # all numeric thresholds (no magic numbers in logic)
 │   ├── report.sh            # report.json + report.txt + tarball
 │   └── postcheck.sh         # post-burn-in deltas: AER, SMART, peak temps, MCE, GPU reset
 ├── stress/
-│   ├── combined.sh          # THE burn-in: GPU(GEMM) + CPU/RAM + SSD simultaneously, shared deadline
-│   ├── gpu_vram.sh          # GEMM VRAM/memory burn (used by combined; per-GPU parallel)
-│   ├── gpu_hotspot.sh       # FMA max-junction burn (standalone probe)
+│   ├── combined.sh          # THE burn-in: GPU Vulkan + CPU/RAM + SSD simultaneously, shared deadline
+│   ├── gpu_vram.sh          # Vulkan VRAM/compute burn (used by combined; per-GPU parallel)
 │   ├── cpu_mem.sh           # stress-ng (CPU + RAM) + bounded memtester
-│   └── ssd.sh               # fio read/write WITH write-safety guard
+│   ├── ssd.sh               # fio read/write WITH write-safety guard
+│   └── llm_bench.sh         # optional: per-card LLM tokens/sec benchmark
 ├── src/
-│   ├── gpu_burn.hip         # FMA loop → junction/hotspot burn
-│   └── gemm_burn.hip        # rocBLAS GEMM → VRAM fill + memory burn
+│   ├── vk_burn.cpp          # Vulkan compute GPU burn (VRAM fill + FMA)
+│   └── vk_burn.comp         # GLSL compute shader for vk_burn
+├── gui/
+│   ├── main.py              # PyQt6 app entry point
+│   ├── sensors.py           # unified sensor reader (sysfs hwmon, no rocm-smi)
+│   ├── burnin.py            # burn-in orchestration for GUI
+│   ├── pages/               # Stability Test, Monitoring, AI Model pages
+│   └── widgets/             # sidebar, topbar
 └── results/
-    └── <serial>_<timestamp>/   # runtime: telemetry.csv, events.log, baselines, report.{json,txt}, tarball
+    └── <serial>_<timestamp>/  # runtime: telemetry.csv, events.log, baselines, report.{json,txt}, tarball
 ```
 
 ---
@@ -119,7 +128,7 @@ gpu:
   vram_gb_each: 32
   vram_bytes_min: 33500000000   # per-card floor (catches a short card)
   vram_spread_max_frac: 0.02    # cross-card uniformity (catches the odd card out)
-  vram_burn_pct: 90             # GEMM VRAM-fill target during burn-in
+  vram_burn_pct: 90             # Vulkan VRAM-fill target during burn-in
   pcie_link_width: 16           # x16
   pcie_link_speed: "32GT/s"     # Gen5
   vram_ecc_enabled: false       # intended fleet ECC policy
@@ -128,7 +137,6 @@ cpu:    { numa_nodes: 1 }       # single-NUMA on this box
 memory: { dimm_count: 0, total_gb_min: 180 }   # dimm_count 0 = skip (needs root)
 storage:{ nvme_count: 1 }
 kernel: { min_version: "6.11" }
-rocm:   { min_version: "7.0" }
 ```
 
 `serial` is **not** here — it's per-unit, passed at runtime (`--serial`).
@@ -141,8 +149,8 @@ rocm:   { min_version: "7.0" }
 Blocks environment problems before wasting a burn-in. Each check prints the
 problem **and the fix**, exits non-zero on failure.
 - Kernel ≥ `kernel.min_version`.
-- ROCm installed and ≥ `rocm.min_version`; `rocm-smi` runs.
-- **hipcc** present (builds FMA kernel) and **rocBLAS** present (builds GEMM kernel).
+- `amdgpu` driver loaded; GPU(s) visible to Vulkan.
+- `build/vk_burn` binary present (built by `deploy.sh`).
 - Required host tools: `lspci, fio, stress-ng, memtester, smartctl, nvme,
   sensors, dmidecode, git, python3` + PyYAML. `ipmitool`/`mcelog` warn-only.
 
@@ -160,16 +168,12 @@ problem **and the fix**, exits non-zero on failure.
 ### Stage 3 — `stress/combined.sh` (burn-in, ONE stage, all subsystems at once)
 Runs for `--duration` with everything loaded simultaneously, sharing one
 deadline — the worst case (PSU peak + heat soak) while VRAM is occupied:
-- **GPU:** `gpu_vram.sh` → `src/gemm_burn.hip` (rocBLAS GEMM, fill `vram_burn_pct`).
-  Per-GPU parallel; fills ~29.5 GB VRAM, ~300 W, memory ~86 °C. Verified the GPU
-  is genuinely loaded (power + VRAM-used across all cards, keyed by BDF).
+- **GPU:** `gpu_vram.sh` → `build/vk_burn` (Vulkan compute, fill 90% VRAM +
+  FMA dispatch). Per-GPU parallel; ~29.5 GB VRAM occupied, ~300 W, memory
+  ~86 °C. Verified by watching power + VRAM-used across all cards, keyed by BDF.
 - **CPU + RAM:** `cpu_mem.sh` → `stress-ng --cpu` + `stress-ng --vm --verify`
   across all cores/channels, plus `memtester` (bounded by `timeout`).
 - **SSD:** `ssd.sh` → `fio` random+sequential R/W, write-guarded (see §8).
-
-`stress/gpu_hotspot.sh` (`src/gpu_burn.hip`, FMA, ~300 W / junction ~95 °C, only
-~512 MB VRAM) is a **standalone max-junction probe**, not part of the default
-burn-in. The individual `stress/*.sh` scripts are all runnable standalone.
 
 ---
 
@@ -178,6 +182,9 @@ Polls every 2 s during burn-in → `results/<...>/telemetry.csv`:
 `timestamp, gpu_id, bdf, junction_temp, memory_temp, edge_temp, power_draw_w,
 vram_used_mb, vram_total_mb, gpu_clock_mhz, mem_clock_mhz, throttle_status,
 ecc_total, nvme_temp, fan_rpm, chassis_power_w`. Unsupported fields → `N/A`.
+
+All GPU sensors read from **sysfs hwmon** (`/sys/class/hwmon/hwmonN/` where
+`name == "amdgpu"`). No rocm-smi dependency.
 
 Plus `events.log`: scans **new** dmesg lines (cursor baselined at start, so boot
 history isn't flagged) for real `AER:` / `PCIe Bus Error` / `Machine check` /
@@ -247,29 +254,39 @@ length — single combined stage), `--mode {full|preflight|inventory|burnin}`,
 
 ---
 
-## 11. Not implemented / future work
+## 11. GUI (`gui/`)
 
-- **Interconnect (rccl) test.** Inter-GPU P2P is fully supported on this platform
-  (full mesh `hipDeviceCanAccessPeer`), and `librccl` is present, but `rccl-tests`
-  is not bundled (no network at build time). A self-contained `hipMemcpyPeer`
-  P2P-bandwidth burn, or a built rccl-tests `all_reduce_perf`, is the natural
-  addition. The current burn-in does **not** exercise the interconnect.
-- **Per-class production config.** `expected_config.yaml` currently reflects the
-  single-NUMA dev box; re-tune the `# TUNE` lines (NUMA, RAM, NVMe, PCIe) for the
-  production WRX90 class before shipping.
+PyQt6 desktop app (`sudo -E python3 gui/main.py`). Three pages:
+- **Stability Test** — Light/Full mode, component selection (GPU/CPU/SSD),
+  start/stop, live timer. Calls `burnin.py` which drives the stress scripts.
+- **Monitoring** — per-sensor checkbox + individual real-time chart cards.
+  Reads sysfs hwmon directly (edge/junction/memory temp, power, sclk, VRAM).
+- **AI Model** — LLM inference benchmark, per-card tokens/sec. Requires
+  `deploy.sh --with-llm` and a `.gguf` model in `models/`.
+
+`sudo -E` is required: the burn-in mounts the NVMe fio target which needs root;
+`-E` preserves `DISPLAY`/`XAUTHORITY`/`XDG_RUNTIME_DIR` for the window.
 
 ---
 
-## 12. Known Environment Gotchas (encoded — don't rediscover)
+## 12. Not implemented / future work
+
+- **Interconnect (rccl) test.** Inter-GPU P2P is fully supported on this
+  platform (full mesh `hipDeviceCanAccessPeer`), but a self-contained P2P
+  bandwidth burn is not yet bundled.
+- **Per-class production config.** `expected_config.yaml` currently reflects the
+  single-NUMA dev box; re-tune the `# TUNE` lines (NUMA, RAM, NVMe, PCIe) for
+  the production WRX90 class before shipping.
+
+---
+
+## 13. Known Environment Gotchas (encoded — don't rediscover)
 
 - **Kernel 6.8 won't enumerate gfx1201** (`1002:7551`). Require ≥ 6.11.
-- **HIP index ≠ rocm-smi index.** `HIP_VISIBLE_DEVICES=0` loaded the card shown
-  as rocm-smi `GPU[2]`. Always map/attribute by **PCI BDF**; the burn kernels
-  print their own BDF (`hipDeviceGetPCIBusId`).
-- **rocBLAS GEMM is untuned (slow GFLOP/s) on gfx1201 but still saturates power
-  and fills/heats VRAM** — it is the VRAM burn. FMA is the junction burn. Verify
-  load by watching **power + VRAM-used across all GPUs**, not GPU-use% on one
-  index.
+- **AMD firmware required for gfx1201.** Not included in Ubuntu 24.04 default
+  linux-firmware. Install via `amdgpu-install --usecase=graphics --no-dkms`
+  (no DKMS kernel replacement, no ROCm — in-kernel amdgpu is sufficient once
+  firmware is present).
 - **PCIe down-negotiation is invisible to GPU tools** — a card at x8/Gen3 passes
   every functional GPU test at half bandwidth. Only `lspci -vvv` LnkSta catches
   it (needs root). Don't skip it.
