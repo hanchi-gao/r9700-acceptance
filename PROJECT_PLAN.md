@@ -3,6 +3,8 @@
 > 4×R9700 newly-assembled server **acceptance test** suite.
 > This document describes the **as-built** architecture. Last revised 2026-07-09.
 
+![Acceptance suite architecture](docs/acceptance-arch.png)
+
 ---
 
 ## 1. Goal & Non-Goals
