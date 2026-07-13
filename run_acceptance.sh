@@ -130,6 +130,13 @@ fi
 
 # ---- Report ---------------------------------------------------------------
 nfail="$(count_fails)"
+ntotal="$(grep -c $'^\(PASS\|FAIL\|WARN\)\t' "$CHECKS_TSV" 2>/dev/null || echo 0)"
+if [[ "$ntotal" -eq 0 ]]; then
+  generate_report "REJECTED" "no checks were recorded — stages may not have run"
+  hdr "FINAL: ${C_RED}REJECTED${C_RST}  (no checks recorded — burn-in did not run or vk_burn missing)"
+  info "report: $RESULTS_DIR/report.txt  +  report.json"
+  exit 1
+fi
 verdict=$([[ "$nfail" -eq 0 ]] && echo "ACCEPTED" || echo "REJECTED")
 generate_report "$verdict" "$nfail check(s) failed"
 
