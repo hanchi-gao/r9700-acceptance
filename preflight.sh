@@ -46,11 +46,10 @@ fi
 declare -A TOOL_FIX=(
   [lspci]="pciutils"     [fio]="fio"            [stress-ng]="stress-ng"
   [memtester]="memtester" [smartctl]="smartmontools" [nvme]="nvme-cli"
-  [sensors]="lm-sensors"  [dmidecode]="dmidecode"
-  [git]="git"             [python3]="python3"
+  [sensors]="lm-sensors"  [dmidecode]="dmidecode"   [python3]="python3"
 )
 missing=()
-for t in lspci fio stress-ng memtester smartctl nvme sensors dmidecode git python3; do
+for t in lspci fio stress-ng memtester smartctl nvme sensors dmidecode python3; do
   if command -v "$t" >/dev/null 2>&1; then :; else missing+=("$t(${TOOL_FIX[$t]})"); fi
 done
 if (( ${#missing[@]} == 0 )); then
