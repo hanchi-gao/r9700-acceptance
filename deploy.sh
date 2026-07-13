@@ -47,7 +47,11 @@ elif [[ -d "$REPO_ROOT/firmware/amdgpu" ]]; then
   ok "firmware installed"
   warn "Reboot required before GPU will initialize: sudo reboot"
 else
-  warn "firmware/ directory missing — GPU may not initialize"
+  warn "gfx1201 firmware not found — GPU will NOT initialize without it."
+  warn "Install AMD firmware first, then re-run deploy.sh:"
+  warn "  wget https://repo.radeon.com/amdgpu-install/6.4/ubuntu/noble/amdgpu-install_6.4.60400-1_all.deb"
+  warn "  sudo apt install ./amdgpu-install_6.4.60400-1_all.deb"
+  warn "  sudo amdgpu-install --usecase=graphics --no-dkms && sudo reboot"
 fi
 
 # ── 3. Host packages ──────────────────────────────────────────────────
