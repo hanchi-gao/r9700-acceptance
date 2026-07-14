@@ -16,8 +16,8 @@ git clone <this-repo> server-acceptance
 cd server-acceptance
 
 # STEP 0 — AMD gfx1201 firmware (fresh OS only; skip if already installed)
-#   wget https://repo.radeon.com/amdgpu-install/7.2.3/ubuntu/noble/amdgpu-install_30.30.3.0.30300300-2327507.24.04_all.deb
-#   sudo apt install ./amdgpu-install_30.30.3.0.30300300-2327507.24.04_all.deb
+#   wget https://repo.radeon.com/amdgpu-install/7.2.3/ubuntu/noble/amdgpu-install_7.2.3.70203-1_all.deb
+#   sudo apt install ./amdgpu-install_7.2.3.70203-1_all.deb
 #   sudo amdgpu-install --usecase=graphics --no-dkms && sudo reboot
 
 # STEP 1 — install dependencies + build Vulkan GPU burn

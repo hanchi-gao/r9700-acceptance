@@ -49,8 +49,8 @@ elif [[ -d "$REPO_ROOT/firmware/amdgpu" ]]; then
 else
   warn "gfx1201 firmware not found — GPU will NOT initialize without it."
   warn "Install AMD firmware first, then re-run deploy.sh:"
-  warn "  wget https://repo.radeon.com/amdgpu-install/7.2.3/ubuntu/noble/amdgpu-install_30.30.3.0.30300300-2327507.24.04_all.deb"
-  warn "  sudo apt install ./amdgpu-install_30.30.3.0.30300300-2327507.24.04_all.deb"
+  warn "  wget https://repo.radeon.com/amdgpu-install/7.2.3/ubuntu/noble/amdgpu-install_7.2.3.70203-1_all.deb"
+  warn "  sudo apt install ./amdgpu-install_7.2.3.70203-1_all.deb"
   warn "  sudo amdgpu-install --usecase=graphics --no-dkms && sudo reboot"
 fi
 
@@ -125,8 +125,8 @@ if (( n > 0 )); then
 else
   warn "amdgpu driver: no GPU detected — driver or firmware not loaded."
   warn "Install AMD driver first:"
-  warn "  wget https://repo.radeon.com/amdgpu-install/7.2.3/ubuntu/noble/amdgpu-install_30.30.3.0.30300300-2327507.24.04_all.deb"
-  warn "  sudo apt install ./amdgpu-install_30.30.3.0.30300300-2327507.24.04_all.deb"
+  warn "  wget https://repo.radeon.com/amdgpu-install/7.2.3/ubuntu/noble/amdgpu-install_7.2.3.70203-1_all.deb"
+  warn "  sudo apt install ./amdgpu-install_7.2.3.70203-1_all.deb"
   warn "  sudo amdgpu-install --usecase=graphics --no-dkms && sudo reboot"
 fi
 
@@ -138,8 +138,8 @@ if [[ -x "$REPO_ROOT/build/vk_burn" ]]; then
   else
     warn "Vulkan: vk_burn sees 0 R9700 GPUs — AMD driver not installed or not initialized"
     warn "Install AMD driver:"
-    warn "  wget https://repo.radeon.com/amdgpu-install/7.2.3/ubuntu/noble/amdgpu-install_30.30.3.0.30300300-2327507.24.04_all.deb"
-    warn "  sudo apt install ./amdgpu-install_30.30.3.0.30300300-2327507.24.04_all.deb"
+    warn "  wget https://repo.radeon.com/amdgpu-install/7.2.3/ubuntu/noble/amdgpu-install_7.2.3.70203-1_all.deb"
+    warn "  sudo apt install ./amdgpu-install_7.2.3.70203-1_all.deb"
     warn "  sudo amdgpu-install --usecase=graphics --no-dkms && sudo reboot"
   fi
 else
