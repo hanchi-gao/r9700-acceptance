@@ -120,8 +120,28 @@ n=0
 for d in /sys/class/hwmon/hwmon*; do
   [[ "$(cat "$d/name" 2>/dev/null)" == "amdgpu" ]] && n=$((n+1))
 done
-ok "sysfs sees $n amdgpu device(s)"
-[[ -x "$REPO_ROOT/build/vk_burn" ]] && ok "vk_burn ready" || fail "vk_burn not built"
+if (( n > 0 )); then
+  ok "amdgpu driver: $n GPU(s) visible via sysfs"
+else
+  warn "amdgpu driver: no GPU detected — driver or firmware not loaded."
+  warn "Install AMD driver first:"
+  warn "  wget https://repo.radeon.com/amdgpu-install/7.2.3/ubuntu/noble/amdgpu-install_30.30.3.0.30300300-2327507.24.04_all.deb"
+  warn "  sudo apt install ./amdgpu-install_30.30.3.0.30300300-2327507.24.04_all.deb"
+  warn "  sudo amdgpu-install --usecase=graphics --no-dkms && sudo reboot"
+fi
+
+if [[ -x "$REPO_ROOT/build/vk_burn" ]]; then
+  ok "vk_burn ready"
+  vk_n=$("$REPO_ROOT/build/vk_burn" --list 2>/dev/null | grep -c $'\t2$' || echo 0)
+  if (( vk_n > 0 )); then
+    ok "Vulkan: $vk_n discrete GPU(s) detected by vk_burn"
+  else
+    warn "Vulkan: vk_burn sees 0 discrete GPUs — driver may not be fully initialized"
+    warn "If you just installed the driver, reboot first: sudo reboot"
+  fi
+else
+  fail "vk_burn not built"
+fi
 
 chmod +x "$REPO_ROOT"/*.sh "$REPO_ROOT"/stress/*.sh "$REPO_ROOT"/lib/*.sh 2>/dev/null || true
 
