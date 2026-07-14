@@ -132,12 +132,15 @@ fi
 
 if [[ -x "$REPO_ROOT/build/vk_burn" ]]; then
   ok "vk_burn ready"
-  vk_n=$("$REPO_ROOT/build/vk_burn" --list 2>/dev/null | grep -c $'\t2$' || echo 0)
+  vk_n=$("$REPO_ROOT/build/vk_burn" --list 2>/dev/null | grep -c "R9700" || echo 0)
   if (( vk_n > 0 )); then
-    ok "Vulkan: $vk_n discrete GPU(s) detected by vk_burn"
+    ok "Vulkan: $vk_n R9700(s) detected by vk_burn"
   else
-    warn "Vulkan: vk_burn sees 0 discrete GPUs — driver may not be fully initialized"
-    warn "If you just installed the driver, reboot first: sudo reboot"
+    warn "Vulkan: vk_burn sees 0 R9700 GPUs — AMD driver not installed or not initialized"
+    warn "Install AMD driver:"
+    warn "  wget https://repo.radeon.com/amdgpu-install/7.2.3/ubuntu/noble/amdgpu-install_30.30.3.0.30300300-2327507.24.04_all.deb"
+    warn "  sudo apt install ./amdgpu-install_30.30.3.0.30300300-2327507.24.04_all.deb"
+    warn "  sudo amdgpu-install --usecase=graphics --no-dkms && sudo reboot"
   fi
 else
   fail "vk_burn not built"
