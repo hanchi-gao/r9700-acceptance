@@ -68,7 +68,10 @@ while IFS=$'\t' read -r idx name dtype; do
   n=$((n+1))
 done < <("$BURN" --list 2>/dev/null)
 
-(( n == 0 )) && die "no R9700 GPUs found via Vulkan"
+if (( n == 0 )); then
+  fail "VRAM burn" "no R9700 GPUs found via Vulkan — AMD driver may not be installed (run amdgpu-install --usecase=graphics --no-dkms)"
+  exit 1
+fi
 
 info "gpu_vram: Vulkan VRAM burn (fill ${PCT}%) on $n R9700(s) until $(date -d "@$DEADLINE" '+%H:%M:%S')"
 
