@@ -1,7 +1,7 @@
 # PROJECT_PLAN.md — `r9700-acceptance`
 
 > 4×R9700 newly-assembled server **acceptance test** suite.
-> This document describes the **as-built** architecture. Last revised 2026-07-09.
+> This document describes the **as-built** architecture. Last revised 2026-07-14.
 
 ![Acceptance suite architecture](docs/acceptance-arch.png)
 
@@ -73,8 +73,9 @@
 - **OS:** Ubuntu 24.04, **kernel ≥ 6.11** (6.8 does **not** enumerate PCI ID
   `1002:7551`; gfx1201 won't appear. `linux-generic-hwe-24.04` is fine).
 - **GPU driver:** in-kernel `amdgpu` — requires AMD firmware for gfx1201 (not
-  in Ubuntu 24.04 default linux-firmware). Install via `amdgpu-install
-  --usecase=graphics --no-dkms` (no ROCm, no DKMS kernel replacement).
+  in Ubuntu 24.04 default linux-firmware). Install via `amdgpu-install 7.2.3`
+  (driver `30.30.3`): `amdgpu-install --usecase=graphics --no-dkms` (no ROCm,
+  no DKMS kernel replacement).
 - **No ROCm, no container, no network at runtime.**
 
 ---
@@ -154,7 +155,8 @@ problem **and the fix**, exits non-zero on failure.
 - `amdgpu` driver loaded; GPU(s) visible to Vulkan.
 - `build/vk_burn` binary present (built by `deploy.sh`).
 - Required host tools: `lspci, fio, stress-ng, memtester, smartctl, nvme,
-  sensors, dmidecode, git, python3` + PyYAML. `ipmitool`/`mcelog` warn-only.
+  sensors, dmidecode, python3` + PyYAML. `ipmitool`/`mcelog` warn-only.
+  (`git` is **not** required at runtime — not in the preflight check list.)
 
 ### Stage 2 — `inventory.sh` (enumerate + compare; captures baselines)
 - **GPU count** == expected (`lspci -d 1002:7551`).
@@ -301,3 +303,15 @@ PyQt6 desktop app (`sudo -E python3 gui/main.py`). Three pages:
   abort the whole apt transaction.
 - **fio is a footgun** — see §8. The one mistake that ruins a customer machine.
 - **Run as root** for PCIe LnkSta, SMART, AER, and dmesg MCE/reset coverage.
+- **Vulkan device name matters.** Without the AMD driver installed, `vk_burn
+  --list` may enumerate a discrete GPU (type=2) but its name won't contain
+  "R9700". Both `deploy.sh` sanity check and `gpu_vram.sh` filter by name —
+  if the driver isn't loaded, the GPU is invisible to the burn and results in
+  a FAIL check (not a silent pass). `deploy.sh` warns with the exact install
+  commands.
+- **Zero checks recorded → force REJECTED.** If `checks.tsv` is empty after
+  the run (e.g., vk_burn wasn't built, stages didn't run), `run_acceptance.sh`
+  forces `REJECTED` instead of emitting a spurious `ACCEPTED`.
+- **`lib/*.sh` must be executable.** `deploy.sh` chmods `*.sh`, `stress/*.sh`,
+  and `lib/*.sh`; a fresh clone without chmod will fail with "permission denied"
+  on `postcheck.sh` (which would silently skip temp/AER delta checks).
