@@ -140,7 +140,7 @@ else
       skipw "VRAM ECC consistent" "RAS info not available — could not verify ECC mode"
     fi
   else
-    skipw "VRAM ECC consistent" "RAS sysfs not available, rocm-smi not installed — skipping ECC check"
+    skipw "VRAM ECC consistent" "RAS sysfs not available (expected without ROCm) — skipping ECC check"
   fi
 fi
 

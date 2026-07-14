@@ -123,7 +123,7 @@ done
 ok "sysfs sees $n amdgpu device(s)"
 [[ -x "$REPO_ROOT/build/vk_burn" ]] && ok "vk_burn ready" || fail "vk_burn not built"
 
-chmod +x "$REPO_ROOT"/*.sh "$REPO_ROOT"/stress/*.sh 2>/dev/null || true
+chmod +x "$REPO_ROOT"/*.sh "$REPO_ROOT"/stress/*.sh "$REPO_ROOT"/lib/*.sh 2>/dev/null || true
 
 say "Done"
 cat <<EOF
