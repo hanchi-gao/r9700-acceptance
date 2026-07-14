@@ -13,8 +13,8 @@ Factory acceptance test suite for 4× ASRock Radeon AI PRO R9700 (gfx1201/RDNA4)
 # Step 0: AMD firmware required for gfx1201 — not included in Ubuntu 24.04
 #         default linux-firmware. Install AMD driver (graphics only, no ROCm,
 #         no DKMS kernel replacement — uses in-kernel amdgpu with kernel ≥ 6.11):
-#   wget https://repo.radeon.com/amdgpu-install/6.4/ubuntu/noble/amdgpu-install_6.4.60400-1_all.deb
-#   sudo apt install ./amdgpu-install_6.4.60400-1_all.deb
+#   wget https://repo.radeon.com/amdgpu-install/7.2.3/ubuntu/noble/amdgpu-install_30.30.3.0.30300300-2327507.24.04_all.deb
+#   sudo apt install ./amdgpu-install_30.30.3.0.30300300-2327507.24.04_all.deb
 #   sudo amdgpu-install --usecase=graphics --no-dkms && sudo reboot
 
 ./deploy.sh                       # host deps + build Vulkan GPU burn
