@@ -269,7 +269,7 @@ PyQt6 desktop app (`sudo -E python3 gui/main.py`). Three pages:
   `deploy.sh --with-llm` and a `.gguf` model in `models/`. Recommended:
   Qwen2.5-7B-Instruct-Q4_K_M (no HF token, Apache 2.0) or
   Llama-3.1-8B-Instruct-Q4_K_M (needs HF token + Meta license).
-  Download via `huggingface-cli download bartowski/<repo> --local-dir models/`.
+  Download via `hf download bartowski/<repo> --local-dir models/`.
 
 `sudo -E` is required: the burn-in mounts the NVMe fio target which needs root;
 `-E` preserves `DISPLAY`/`XAUTHORITY`/`XDG_RUNTIME_DIR` for the window.
@@ -320,5 +320,5 @@ PyQt6 desktop app (`sudo -E python3 gui/main.py`). Three pages:
   on `postcheck.sh` (which would silently skip temp/AER delta checks).
 - **LLM model is not bundled.** `llm_bench.sh` requires a `.gguf` in `models/`.
   Qwen2.5-7B Q4_K_M (~5 GB) needs no HF token. Llama 3.1 8B Q4_K_M (~5 GB)
-  requires `huggingface-cli login` (Meta license gate). See README §LLM for
+  requires `hf login` (Meta license gate). See README §LLM for
   exact download commands.
