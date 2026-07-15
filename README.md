@@ -88,12 +88,27 @@ Or select in GUI Stability Test page.
 ### LLM inference test (optional)
 
 ```bash
-./deploy.sh --with-llm           # builds llama.cpp (Vulkan backend)
-# Place model: models/Meta-Llama-3.1-8B-Instruct-Q4_K_M.gguf
+# 1. Build llama.cpp (Vulkan backend)
+./deploy.sh --with-llm
+
+# 2. Download a model into models/
+#    Option A — Qwen2.5 7B (no HF token required, Apache 2.0):
+pip3 install huggingface_hub --break-system-packages
+huggingface-cli download bartowski/Qwen2.5-7B-Instruct-GGUF \
+  --include "Qwen2.5-7B-Instruct-Q4_K_M.gguf" \
+  --local-dir models/
+
+#    Option B — Llama 3.1 8B (requires HF token + Meta license):
+huggingface-cli login            # paste your HF token
+huggingface-cli download bartowski/Meta-Llama-3.1-8B-Instruct-GGUF \
+  --include "Meta-Llama-3.1-8B-Instruct-Q4_K_M.gguf" \
+  --local-dir models/
+
+# 3. Run per-card benchmark
 ./stress/llm_bench.sh            # per-card tokens/sec benchmark
 ```
 
-Also available in GUI AI Model page with model download button.
+Also available in GUI AI Model page.
 
 ## Thresholds
 
